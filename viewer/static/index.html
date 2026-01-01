@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EDF Viewer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app"></div>
+
+    <!-- Preact + HTM for JSX-like syntax without build step -->
+    <script type="module">
+        import { h, render, Component } from 'https://esm.sh/preact@10.19.3';
+        import { useState, useEffect, useMemo } from 'https://esm.sh/preact@10.19.3/hooks';
+        import htm from 'https://esm.sh/htm@3.1.1';
+        import { BlobReader, ZipReader, BlobWriter } from 'https://esm.sh/@zip.js/zip.js@2.7.34';
+
+        // Bind HTM to Preact's h function
+        const html = htm.bind(h);
+
+        // Simple markdown renderer (basic support)
+        function renderMarkdown(text) {
+            if (!text) return '';
+            return text
+                .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+                .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+                .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+                .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.+?)\*/g, '<em>$1</em>')
+                .replace(/`(.+?)`/g, '<code>$1</code>')
+                .replace(/\n/g, '<br>');
+        }
+
+        // Format timestamp
+        function formatTimestamp(ms) {
+            if (!ms) return 'N/A';
+            return new Date(ms).toLocaleString();
+        }
+
+        // Grade Distribution Chart Component
+        function GradeChart({ distributions, maxGrade, actualGrade }) {
+            const width = 400;
+            const height = 150;
+            const padding = { top: 20, right: 20, bottom: 30, left: 40 };
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+
+            const barWidth = chartWidth / (maxGrade + 1) - 2;
+
+            // Find max probability for scaling
+            const allProbs = [...distributions.optimistic, ...distributions.expected, ...distributions.pessimistic];
+            const maxProb = Math.max(...allProbs, 0.1);
+
+            const scaleY = (p) => chartHeight - (p / maxProb) * chartHeight;
+            const scaleX = (i) => (i / (maxGrade + 1)) * chartWidth;
+
+            return html`
+                <div class="grade-chart">
+                    <svg width="${width}" height="${height}">
+                        <g transform="translate(${padding.left}, ${padding.top})">
+                            <!-- Y axis -->
+                            <line x1="0" y1="0" x2="0" y2="${chartHeight}" stroke="#ccc" />
+
+                            <!-- X axis -->
+                            <line x1="0" y1="${chartHeight}" x2="${chartWidth}" y2="${chartHeight}" stroke="#ccc" />
+
+                            <!-- Distribution lines -->
+                            <polyline
+                                fill="none"
+                                stroke="#4CAF50"
+                                stroke-width="2"
+                                points="${distributions.optimistic.map((p, i) => `${scaleX(i) + barWidth/2},${scaleY(p)}`).join(' ')}"
+                            />
+                            <polyline
+                                fill="none"
+                                stroke="#2196F3"
+                                stroke-width="2"
+                                points="${distributions.expected.map((p, i) => `${scaleX(i) + barWidth/2},${scaleY(p)}`).join(' ')}"
+                            />
+                            <polyline
+                                fill="none"
+                                stroke="#FF5722"
+                                stroke-width="2"
+                                points="${distributions.pessimistic.map((p, i) => `${scaleX(i) + barWidth/2},${scaleY(p)}`).join(' ')}"
+                            />
+
+                            <!-- Actual grade marker -->
+                            <line
+                                x1="${scaleX(actualGrade) + barWidth/2}"
+                                y1="0"
+                                x2="${scaleX(actualGrade) + barWidth/2}"
+                                y2="${chartHeight}"
+                                stroke="#000"
+                                stroke-width="2"
+                                stroke-dasharray="4"
+                            />
+
+                            <!-- X axis labels (every 5 grades or so) -->
+                            ${Array.from({length: maxGrade + 1}, (_, i) => i).filter(i => i % Math.ceil((maxGrade + 1) / 10) === 0 || i === maxGrade).map(i => html`
+                                <text x="${scaleX(i) + barWidth/2}" y="${chartHeight + 15}" text-anchor="middle" font-size="10">${i}</text>
+                            `)}
+                        </g>
+                    </svg>
+                    <div class="chart-legend">
+                        <span class="legend-item"><span class="legend-color" style="background: #4CAF50"></span> Optimistic</span>
+                        <span class="legend-item"><span class="legend-color" style="background: #2196F3"></span> Expected</span>
+                        <span class="legend-item"><span class="legend-color" style="background: #FF5722"></span> Pessimistic</span>
+                        <span class="legend-item"><span class="legend-color" style="background: #000"></span> Actual: ${actualGrade}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Submission List Component
+        function SubmissionList({ submissions, selectedId, onSelect }) {
+            return html`
+                <div class="submission-list">
+                    <h3>Submissions (${submissions.length})</h3>
+                    <ul>
+                        ${submissions.map(sub => html`
+                            <li
+                                class="${selectedId === sub.id ? 'selected' : ''}"
+                                onClick=${() => onSelect(sub.id)}
+                            >
+                                <span class="sub-id">${sub.id}</span>
+                                <span class="sub-grade">${sub.grade}</span>
+                            </li>
+                        `)}
+                    </ul>
+                </div>
+            `;
+        }
+
+        // Submission Detail Component
+        function SubmissionDetail({ submission, maxGrade }) {
+            if (!submission) {
+                return html`<div class="submission-detail empty">Select a submission</div>`;
+            }
+
+            return html`
+                <div class="submission-detail">
+                    <h2>Submission: ${submission.id}</h2>
+
+                    <div class="grade-section">
+                        <div class="grade-display">
+                            <span class="grade-value">${submission.grade}</span>
+                            <span class="grade-max">/ ${maxGrade}</span>
+                        </div>
+
+                        <${GradeChart}
+                            distributions=${submission.distributions}
+                            maxGrade=${maxGrade}
+                            actualGrade=${submission.grade}
+                        />
+                    </div>
+
+                    ${submission.additional && Object.keys(submission.additional).length > 0 && html`
+                        <div class="additional-data">
+                            <h3>Additional Data</h3>
+                            <dl>
+                                ${Object.entries(submission.additional).map(([key, value]) => html`
+                                    <dt>${key}</dt>
+                                    <dd>${value ?? 'N/A'}</dd>
+                                `)}
+                            </dl>
+                        </div>
+                    `}
+
+                    <div class="content-section">
+                        <h3>Content</h3>
+                        ${submission.contentType === 'markdown' && html`
+                            <div class="content-markdown" dangerouslySetInnerHTML=${{ __html: renderMarkdown(submission.content) }}></div>
+                        `}
+                        ${submission.contentType === 'pdf' && html`
+                            <div class="content-pdf">
+                                <object data="${submission.content}" type="application/pdf" width="100%" height="600">
+                                    <p>PDF cannot be displayed. <a href="${submission.content}" download>Download PDF</a></p>
+                                </object>
+                            </div>
+                        `}
+                        ${submission.contentType === 'images' && html`
+                            <div class="content-images">
+                                ${submission.content.map((url, i) => html`
+                                    <img src="${url}" alt="Page ${i + 1}" />
+                                `)}
+                            </div>
+                        `}
+                    </div>
+                </div>
+            `;
+        }
+
+        // Task Info Component
+        function TaskInfo({ manifest, task, rubric, prompt }) {
+            const [showRubric, setShowRubric] = useState(false);
+            const [showPrompt, setShowPrompt] = useState(false);
+
+            return html`
+                <div class="task-info">
+                    <h2>Task Information</h2>
+
+                    <dl class="task-details">
+                        <dt>Task ID</dt>
+                        <dd>${manifest.task_id}</dd>
+
+                        <dt>Version</dt>
+                        <dd>${task.version}</dd>
+
+                        <dt>EDF Version</dt>
+                        <dd>${manifest.edf_version}</dd>
+
+                        <dt>Created</dt>
+                        <dd>${formatTimestamp(manifest.created_at)}</dd>
+
+                        <dt>Max Grade</dt>
+                        <dd>${task.max_grade}</dd>
+
+                        <dt>Content Format</dt>
+                        <dd>${manifest.content_format}</dd>
+
+                        <dt>Submissions</dt>
+                        <dd>${manifest.submission_count}</dd>
+                    </dl>
+
+                    ${task.additional && Object.keys(task.additional).length > 0 && html`
+                        <div class="task-additional">
+                            <h3>Additional Data</h3>
+                            <dl>
+                                ${Object.entries(task.additional).map(([key, value]) => html`
+                                    <dt>${key}</dt>
+                                    <dd>${value ?? 'N/A'}</dd>
+                                `)}
+                            </dl>
+                        </div>
+                    `}
+
+                    ${rubric && html`
+                        <div class="collapsible">
+                            <button onClick=${() => setShowRubric(!showRubric)}>
+                                ${showRubric ? '▼' : '▶'} Rubric
+                            </button>
+                            ${showRubric && html`
+                                <div class="collapsible-content" dangerouslySetInnerHTML=${{ __html: renderMarkdown(rubric) }}></div>
+                            `}
+                        </div>
+                    `}
+
+                    ${prompt && html`
+                        <div class="collapsible">
+                            <button onClick=${() => setShowPrompt(!showPrompt)}>
+                                ${showPrompt ? '▼' : '▶'} Prompt
+                            </button>
+                            ${showPrompt && html`
+                                <div class="collapsible-content" dangerouslySetInnerHTML=${{ __html: renderMarkdown(prompt) }}></div>
+                            `}
+                        </div>
+                    `}
+                </div>
+            `;
+        }
+
+        // Loading Component
+        function Loading({ message }) {
+            return html`
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>${message || 'Loading...'}</p>
+                </div>
+            `;
+        }
+
+        // Error Component
+        function ErrorDisplay({ error }) {
+            return html`
+                <div class="error">
+                    <h2>Error</h2>
+                    <p>${error}</p>
+                </div>
+            `;
+        }
+
+        // Main App Component
+        function App() {
+            const [loading, setLoading] = useState(true);
+            const [error, setError] = useState(null);
+            const [edfData, setEdfData] = useState(null);
+            const [selectedSubmission, setSelectedSubmission] = useState(null);
+            const [view, setView] = useState('task'); // 'task' or 'submissions'
+
+            // Load EDF file on mount
+            useEffect(() => {
+                loadEdfFile();
+            }, []);
+
+            async function loadEdfFile() {
+                try {
+                    setLoading(true);
+
+                    // Fetch the EDF file
+                    const response = await fetch('/file.edf');
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch EDF file: ${response.status}`);
+                    }
+
+                    const blob = await response.blob();
+                    const zipReader = new ZipReader(new BlobReader(blob));
+                    const entries = await zipReader.getEntries();
+
+                    // Create a map for easy access
+                    const fileMap = new Map();
+                    for (const entry of entries) {
+                        fileMap.set(entry.filename, entry);
+                    }
+
+                    // Helper to read JSON
+                    async function readJson(path) {
+                        const entry = fileMap.get(path);
+                        if (!entry) throw new Error(`Missing file: ${path}`);
+                        const writer = new BlobWriter('application/json');
+                        const blob = await entry.getData(writer);
+                        const text = await blob.text();
+                        return JSON.parse(text);
+                    }
+
+                    // Helper to read text
+                    async function readText(path) {
+                        const entry = fileMap.get(path);
+                        if (!entry) return null;
+                        const writer = new BlobWriter('text/plain');
+                        const blob = await entry.getData(writer);
+                        return await blob.text();
+                    }
+
+                    // Helper to read binary as blob URL
+                    async function readBlobUrl(path, mimeType) {
+                        const entry = fileMap.get(path);
+                        if (!entry) return null;
+                        const writer = new BlobWriter(mimeType);
+                        const blob = await entry.getData(writer);
+                        return URL.createObjectURL(blob);
+                    }
+
+                    // Read manifest
+                    const manifest = await readJson('manifest.json');
+
+                    // Read task core
+                    const taskCore = await readJson('task/core.json');
+
+                    // Read task additional data if declared
+                    let taskAdditional = {};
+                    if (manifest.additional_data?.task?.length > 0) {
+                        taskAdditional = await readJson('task/additional_data.json');
+                    }
+
+                    // Read rubric and prompt
+                    const rubric = manifest.has_rubric ? await readText('task/rubric.md') : null;
+                    const prompt = manifest.has_prompt ? await readText('task/prompt.md') : null;
+
+                    // Read submission index
+                    const index = await readJson('submissions/_index.json');
+
+                    // Load all submissions
+                    const submissions = [];
+                    for (const id of index.submission_ids) {
+                        const core = await readJson(`submissions/${id}/core.json`);
+
+                        let additional = {};
+                        if (manifest.additional_data?.submission?.length > 0) {
+                            additional = await readJson(`submissions/${id}/additional_data.json`);
+                        }
+
+                        // Load content based on format
+                        let content = null;
+                        let contentType = manifest.content_format;
+
+                        if (contentType === 'markdown') {
+                            content = await readText(`submissions/${id}/content.md`);
+                        } else if (contentType === 'pdf') {
+                            content = await readBlobUrl(`submissions/${id}/content.pdf`, 'application/pdf');
+                        } else if (contentType === 'images') {
+                            content = [];
+                            let pageNum = 0;
+                            while (fileMap.has(`submissions/${id}/pages/${pageNum}.jpg`)) {
+                                const url = await readBlobUrl(`submissions/${id}/pages/${pageNum}.jpg`, 'image/jpeg');
+                                content.push(url);
+                                pageNum++;
+                            }
+                        }
+
+                        submissions.push({
+                            id,
+                            grade: core.grade,
+                            distributions: core.grade_distributions,
+                            additional,
+                            content,
+                            contentType,
+                        });
+                    }
+
+                    await zipReader.close();
+
+                    setEdfData({
+                        manifest,
+                        task: { ...taskCore, additional: taskAdditional },
+                        rubric,
+                        prompt,
+                        submissions,
+                    });
+
+                    if (submissions.length > 0) {
+                        setSelectedSubmission(submissions[0].id);
+                    }
+
+                    setLoading(false);
+                } catch (err) {
+                    console.error('Failed to load EDF:', err);
+                    setError(err.message);
+                    setLoading(false);
+                }
+            }
+
+            if (loading) {
+                return html`<${Loading} message="Loading EDF file..." />`;
+            }
+
+            if (error) {
+                return html`<${ErrorDisplay} error=${error} />`;
+            }
+
+            if (!edfData) {
+                return html`<${ErrorDisplay} error="No data loaded" />`;
+            }
+
+            const currentSubmission = edfData.submissions.find(s => s.id === selectedSubmission);
+
+            return html`
+                <div class="app">
+                    <header>
+                        <h1>EDF Viewer</h1>
+                        <nav>
+                            <button class="${view === 'task' ? 'active' : ''}" onClick=${() => setView('task')}>Task</button>
+                            <button class="${view === 'submissions' ? 'active' : ''}" onClick=${() => setView('submissions')}>Submissions</button>
+                        </nav>
+                    </header>
+
+                    <main>
+                        ${view === 'task' && html`
+                            <${TaskInfo}
+                                manifest=${edfData.manifest}
+                                task=${edfData.task}
+                                rubric=${edfData.rubric}
+                                prompt=${edfData.prompt}
+                            />
+                        `}
+
+                        ${view === 'submissions' && html`
+                            <div class="submissions-view">
+                                <${SubmissionList}
+                                    submissions=${edfData.submissions}
+                                    selectedId=${selectedSubmission}
+                                    onSelect=${setSelectedSubmission}
+                                />
+                                <${SubmissionDetail}
+                                    submission=${currentSubmission}
+                                    maxGrade=${edfData.task.max_grade}
+                                />
+                            </div>
+                        `}
+                    </main>
+                </div>
+            `;
+        }
+
+        // Render the app
+        render(html`<${App} />`, document.getElementById('app'));
+    </script>
+</body>
+</html>
