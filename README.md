@@ -41,64 +41,55 @@ uv sync
 ### Reading an EDF File
 
 ```python
-from edf import EDFReader
+from edf import EDF
 
-with EDFReader.open("assignment.edf") as reader:
-    print(f"Task: {reader.manifest.task_id}")
-    print(f"Max grade: {reader.task.core.max_grade}")
+with EDF.open("assignment.edf") as edf:
+    print(f"Task: {edf.task_id}")
+    print(f"Max grade: {edf.max_grade}")
 
-    if reader.rubric:
-        print(f"Rubric:\n{reader.rubric}")
+    if edf.rubric:
+        print(f"Rubric:\n{edf.rubric}")
 
-    for submission in reader.iter_submissions():
-        print(f"{submission.submission_id}: {submission.grade}")
-
-        # Access grade distributions
-        dist = submission.grade_distributions
-        print(f"  Expected distribution peak: {dist.expected.index(max(dist.expected))}")
-
-        # Get content (format depends on manifest.content_format)
-        if content := submission.get_content_markdown():
-            print(f"  Content: {content[:100]}...")
+    for sub in edf.submissions:
+        print(f"{sub.id}: {sub.grade}")
+        if text := sub.get_markdown():
+            print(f"  Content: {text[:100]}...")
 ```
 
 ### Creating an EDF File
 
 ```python
-from edf import EDFBuilder
+from edf import EDF
 
-builder = EDFBuilder()
-builder.set_max_grade(20)
-builder.set_rubric("""
+edf = EDF(max_grade=20)
+edf.rubric = """
 # Grading Criteria
 
 - Correctness: 10 points
 - Clarity: 5 points
 - Style: 5 points
-""")
+"""
 
-# Add submissions with grade distributions
-builder.add_submission(
+edf.add_submission(
     submission_id="student_alice",
     grade=15,
-    optimistic=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.05, 0.15, 0.5, 0.2, 0.1, 0, 0, 0],
-    expected=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0.2, 0.4, 0.2, 0.1, 0, 0, 0],
-    pessimistic=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.1, 0.2, 0.3, 0.25, 0.1, 0.05, 0, 0, 0],
+    optimistic=[0]*13 + [0.05, 0.15, 0.5, 0.2, 0.1, 0, 0, 0],
+    expected=[0]*13 + [0.1, 0.2, 0.4, 0.2, 0.1, 0, 0, 0],
+    pessimistic=[0]*12 + [0.1, 0.2, 0.3, 0.25, 0.1, 0.05, 0, 0, 0],
     content="The student's markdown answer here...",
-    student_name="Alice Smith",  # additional data
+    student_name="Alice Smith",
 )
 
-builder.write("output.edf")
+edf.save("output.edf")
 ```
 
 ### Validation
 
 ```python
-from edf import EDFReader
-from edf.exceptions import EDFValidationError
+from edf import EDF, EDFValidationError
 
 try:
-    with EDFReader.open("file.edf", validate=True) as reader:
+    with EDF.open("file.edf", validate=True) as edf:
         print("File is valid")
 except EDFValidationError as e:
     print("Validation failed:")
@@ -138,11 +129,15 @@ The viewer displays:
 - Per-submission grade and grade distribution charts
 - Submission content (markdown, PDF, or images)
 
+## Documentation
+
+- **[DOCS/SDK.md](DOCS/SDK.md)** — Exhaustive Python SDK reference (classes, methods, examples)
+- **[DOCS/SPEC.md](DOCS/SPEC.md)** — EDF file format specification (schemas, validation rules, algorithms)
+
 ## File Format
 
-EDF files are ZIP archives with a specific structure. See [DOCS/SPEC.md](DOCS/SPEC.md) for the complete specification.
+EDF files are ZIP archives with a specific structure:
 
-Basic structure:
 ```
 task.edf
 ├── manifest.json
@@ -158,16 +153,6 @@ task.edf
         ├── additional_data.json (optional)
         └── content.md | content.pdf | pages/
 ```
-
-## Additional Data
-
-EDF supports additional metadata attributes at both the task and submission level. Standard attributes include:
-
-**Task level:** `school_id`, `subject_code`, `time_limit_minutes`, `academic_year`, `difficulty_level`, `source_exam`, `section_id`
-
-**Submission level:** `student_name`, `student_id`, `grader_id`, `submitted_at`, `graded_at`, `time_taken_minutes`, `attempt_number`, `marker_feedback`
-
-Custom attributes can use the `x-{namespace}-{attribute}` pattern without requiring registration.
 
 ## License
 

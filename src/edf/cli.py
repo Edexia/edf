@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from edf.reader import EDFReader
+from edf.core import EDF
 from edf.exceptions import EDFValidationError
 
 
@@ -16,25 +16,26 @@ def cmd_info(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        with EDFReader.open(path, validate=False) as reader:
-            m = reader.manifest
-            t = reader.task.core
+        with EDF.open(path, validate=False) as edf:
+            print(f"EDF Version:    {edf.edf_version}")
+            print(f"Task ID:        {edf.task_id}")
+            print(f"Version:        {edf.version}")
+            print(f"Content Hash:   {edf.content_hash[:20]}..." if edf.content_hash else "Content Hash:   N/A")
+            print(f"Created:        {edf.created_at}")
+            print(f"Content Format: {edf.content_format.value if edf.content_format else 'N/A'}")
+            print(f"Max Grade:      {edf.max_grade}")
+            print(f"Submissions:    {len(edf.submissions)}")
+            print(f"Has Rubric:     {edf.rubric is not None}")
+            print(f"Has Prompt:     {edf.prompt is not None}")
 
-            print(f"EDF Version:    {m.edf_version}")
-            print(f"Task ID:        {m.task_id}")
-            print(f"Version:        {t.version}")
-            print(f"Content Hash:   {m.content_hash[:20]}...")
-            print(f"Created:        {m.created_at}")
-            print(f"Content Format: {m.content_format.value}")
-            print(f"Max Grade:      {t.max_grade}")
-            print(f"Submissions:    {m.submission_count}")
-            print(f"Has Rubric:     {m.has_rubric}")
-            print(f"Has Prompt:     {m.has_prompt}")
+            if edf.task_data:
+                print(f"Task Attrs:     {', '.join(edf.task_data.keys())}")
 
-            if m.additional_data.task:
-                print(f"Task Attrs:     {', '.join(m.additional_data.task)}")
-            if m.additional_data.submission:
-                print(f"Sub Attrs:      {', '.join(m.additional_data.submission)}")
+            sub_attrs: set[str] = set()
+            for sub in edf.submissions:
+                sub_attrs.update(sub.additional.keys())
+            if sub_attrs:
+                print(f"Sub Attrs:      {', '.join(sorted(sub_attrs))}")
 
     except Exception as e:
         print(f"Error reading file: {e}", file=sys.stderr)
@@ -51,11 +52,10 @@ def cmd_validate(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        with EDFReader.open(path, validate=True) as reader:
-            # If we get here, validation passed
+        with EDF.open(path, validate=True) as edf:
             print(f"Valid: {path}")
-            print(f"  Task ID: {reader.manifest.task_id}")
-            print(f"  Submissions: {reader.manifest.submission_count}")
+            print(f"  Task ID: {edf.task_id}")
+            print(f"  Submissions: {len(edf.submissions)}")
             return 0
     except EDFValidationError as e:
         print(f"Invalid: {path}", file=sys.stderr)

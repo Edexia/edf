@@ -56,7 +56,7 @@ The manifest declares the structure and contents of the entire package.
 
 ```json
 {
-  "edf_version": "0.1.0",
+  "edf_version": "1.0.0",
   "task_id": "550e8400-e29b-41d4-a716-446655440000",
   "content_hash": "sha256:...",
   "created_at": 1736942400000,

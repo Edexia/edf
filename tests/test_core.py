@@ -1,0 +1,481 @@
+"""Tests for the core EDF class."""
+
+import math
+import pytest
+import uuid
+from pathlib import Path
+
+from edf import EDF, EDF_VERSION, ContentFormat
+from edf.exceptions import EDFValidationError
+
+
+def make_distribution(peak: int, max_grade: int, sigma: float = 2.0) -> list[float]:
+    """Generate a Gaussian distribution for testing."""
+    dist = [math.exp(-((i - peak) ** 2) / (2 * sigma ** 2)) for i in range(max_grade + 1)]
+    total = sum(dist)
+    return [p / total for p in dist]
+
+
+class TestEDFCreation:
+    """Tests for creating new EDF instances."""
+
+    def test_create_minimal(self):
+        """Create EDF with only required parameter."""
+        edf = EDF(max_grade=10)
+        assert edf.max_grade == 10
+        assert edf.version == 1
+        assert edf.edf_version == EDF_VERSION
+        assert edf.rubric is None
+        assert edf.prompt is None
+        assert len(edf.submissions) == 0
+
+    def test_create_with_task_id(self):
+        """Create EDF with explicit task_id."""
+        task_id = "550e8400-e29b-41d4-a716-446655440000"
+        edf = EDF(max_grade=10, task_id=task_id)
+        assert edf.task_id == task_id
+
+    def test_create_auto_generates_task_id(self):
+        """Task ID is auto-generated as valid UUID."""
+        edf = EDF(max_grade=10)
+        # Should be valid UUID v4
+        parsed = uuid.UUID(edf.task_id)
+        assert parsed.version == 4
+
+    def test_create_with_version(self):
+        """Create EDF with explicit version."""
+        edf = EDF(max_grade=10, version=5)
+        assert edf.version == 5
+
+    def test_create_with_edf_version(self):
+        """Create EDF with explicit edf_version."""
+        edf = EDF(max_grade=10, edf_version="2.0.0")
+        assert edf.edf_version == "2.0.0"
+
+
+class TestEDFProperties:
+    """Tests for EDF property getters and setters."""
+
+    def test_rubric_setter(self):
+        """Set and get rubric."""
+        edf = EDF(max_grade=10)
+        edf.rubric = "# Test Rubric"
+        assert edf.rubric == "# Test Rubric"
+
+    def test_rubric_set_none(self):
+        """Set rubric to None."""
+        edf = EDF(max_grade=10)
+        edf.rubric = "# Test"
+        edf.rubric = None
+        assert edf.rubric is None
+
+    def test_prompt_setter(self):
+        """Set and get prompt."""
+        edf = EDF(max_grade=10)
+        edf.prompt = "# Test Prompt"
+        assert edf.prompt == "# Test Prompt"
+
+    def test_version_setter(self):
+        """Set version property."""
+        edf = EDF(max_grade=10)
+        edf.version = 3
+        assert edf.version == 3
+
+    def test_version_setter_invalid(self):
+        """Version must be >= 1."""
+        edf = EDF(max_grade=10)
+        with pytest.raises(ValueError, match="version must be >= 1"):
+            edf.version = 0
+
+    def test_task_data_readonly(self):
+        """task_data property returns dict but modifications need set_task_data."""
+        edf = EDF(max_grade=10)
+        edf.set_task_data(foo="bar")
+        assert edf.task_data == {"foo": "bar"}
+
+    def test_content_format_none_when_empty(self):
+        """content_format is None when no submissions."""
+        edf = EDF(max_grade=10)
+        assert edf.content_format is None
+
+    def test_content_format_from_submission(self, simple_edf):
+        """content_format is detected from submissions."""
+        assert simple_edf.content_format == ContentFormat.MARKDOWN
+
+    def test_created_at_none_before_save(self):
+        """created_at is None before save."""
+        edf = EDF(max_grade=10)
+        assert edf.created_at is None
+
+    def test_content_hash_none_before_save(self):
+        """content_hash is None before save."""
+        edf = EDF(max_grade=10)
+        assert edf.content_hash is None
+
+
+class TestEDFTaskData:
+    """Tests for task-level additional data."""
+
+    def test_set_task_data(self):
+        """Set task data with kwargs."""
+        edf = EDF(max_grade=10)
+        edf.set_task_data(school_id="TEST-001", subject_code="MATH-101")
+        assert edf.task_data["school_id"] == "TEST-001"
+        assert edf.task_data["subject_code"] == "MATH-101"
+
+    def test_set_task_data_chaining(self):
+        """set_task_data returns self for chaining."""
+        edf = EDF(max_grade=10)
+        result = edf.set_task_data(foo="bar")
+        assert result is edf
+
+    def test_set_task_data_merge(self):
+        """Multiple set_task_data calls merge data."""
+        edf = EDF(max_grade=10)
+        edf.set_task_data(a="1")
+        edf.set_task_data(b="2")
+        assert edf.task_data == {"a": "1", "b": "2"}
+
+    def test_set_task_data_overwrite(self):
+        """set_task_data overwrites existing keys."""
+        edf = EDF(max_grade=10)
+        edf.set_task_data(a="1")
+        edf.set_task_data(a="2")
+        assert edf.task_data["a"] == "2"
+
+
+class TestEDFSubmissions:
+    """Tests for adding and managing submissions."""
+
+    def test_add_submission_markdown(self, uniform_distribution):
+        """Add markdown submission."""
+        edf = EDF(max_grade=10)
+        edf.add_submission(
+            submission_id="test",
+            grade=5,
+            optimistic=uniform_distribution,
+            expected=uniform_distribution,
+            pessimistic=uniform_distribution,
+            content="Markdown content",
+        )
+        assert len(edf.submissions) == 1
+        assert edf.submissions[0].id == "test"
+        assert edf.submissions[0].grade == 5
+        assert edf.content_format == ContentFormat.MARKDOWN
+
+    def test_add_submission_pdf(self, uniform_distribution):
+        """Add PDF submission."""
+        edf = EDF(max_grade=10)
+        pdf_bytes = b"%PDF-1.4 fake pdf content"
+        edf.add_submission(
+            submission_id="test",
+            grade=5,
+            optimistic=uniform_distribution,
+            expected=uniform_distribution,
+            pessimistic=uniform_distribution,
+            content=pdf_bytes,
+        )
+        assert edf.content_format == ContentFormat.PDF
+        assert edf.submissions[0].get_pdf() == pdf_bytes
+
+    def test_add_submission_images(self, uniform_distribution):
+        """Add image submission."""
+        edf = EDF(max_grade=10)
+        images = [b"fake jpg 1", b"fake jpg 2"]
+        edf.add_submission(
+            submission_id="test",
+            grade=5,
+            optimistic=uniform_distribution,
+            expected=uniform_distribution,
+            pessimistic=uniform_distribution,
+            content=images,
+        )
+        assert edf.content_format == ContentFormat.IMAGES
+        assert edf.submissions[0].get_images() == images
+
+    def test_add_submission_with_additional_data(self, uniform_distribution):
+        """Add submission with additional metadata."""
+        edf = EDF(max_grade=10)
+        edf.add_submission(
+            submission_id="test",
+            grade=5,
+            optimistic=uniform_distribution,
+            expected=uniform_distribution,
+            pessimistic=uniform_distribution,
+            content="content",
+            student_name="Test Student",
+            student_id="12345",
+        )
+        sub = edf.submissions[0]
+        assert sub.additional["student_name"] == "Test Student"
+        assert sub.additional["student_id"] == "12345"
+
+    def test_add_submission_chaining(self, uniform_distribution):
+        """add_submission returns self for chaining."""
+        edf = EDF(max_grade=10)
+        result = edf.add_submission(
+            submission_id="test",
+            grade=5,
+            optimistic=uniform_distribution,
+            expected=uniform_distribution,
+            pessimistic=uniform_distribution,
+            content="content",
+        )
+        assert result is edf
+
+    def test_add_submission_invalid_id_empty(self, uniform_distribution):
+        """Reject empty submission_id."""
+        edf = EDF(max_grade=10)
+        with pytest.raises(ValueError, match="submission_id must be alphanumeric"):
+            edf.add_submission(
+                submission_id="",
+                grade=5,
+                optimistic=uniform_distribution,
+                expected=uniform_distribution,
+                pessimistic=uniform_distribution,
+                content="content",
+            )
+
+    def test_add_submission_invalid_id_special_chars(self, uniform_distribution):
+        """Reject submission_id with special characters."""
+        edf = EDF(max_grade=10)
+        with pytest.raises(ValueError, match="submission_id must be alphanumeric"):
+            edf.add_submission(
+                submission_id="test-student",
+                grade=5,
+                optimistic=uniform_distribution,
+                expected=uniform_distribution,
+                pessimistic=uniform_distribution,
+                content="content",
+            )
+
+    def test_add_submission_duplicate_id(self, uniform_distribution):
+        """Reject duplicate submission_id."""
+        edf = EDF(max_grade=10)
+        edf.add_submission(
+            submission_id="test",
+            grade=5,
+            optimistic=uniform_distribution,
+            expected=uniform_distribution,
+            pessimistic=uniform_distribution,
+            content="content",
+        )
+        with pytest.raises(ValueError, match="already exists"):
+            edf.add_submission(
+                submission_id="test",
+                grade=5,
+                optimistic=uniform_distribution,
+                expected=uniform_distribution,
+                pessimistic=uniform_distribution,
+                content="more content",
+            )
+
+    def test_add_submission_grade_out_of_range(self, uniform_distribution):
+        """Reject grade outside [0, max_grade]."""
+        edf = EDF(max_grade=10)
+        with pytest.raises(ValueError, match="grade must be in"):
+            edf.add_submission(
+                submission_id="test",
+                grade=11,
+                optimistic=uniform_distribution,
+                expected=uniform_distribution,
+                pessimistic=uniform_distribution,
+                content="content",
+            )
+
+    def test_add_submission_grade_negative(self, uniform_distribution):
+        """Reject negative grade."""
+        edf = EDF(max_grade=10)
+        with pytest.raises(ValueError, match="grade must be in"):
+            edf.add_submission(
+                submission_id="test",
+                grade=-1,
+                optimistic=uniform_distribution,
+                expected=uniform_distribution,
+                pessimistic=uniform_distribution,
+                content="content",
+            )
+
+    def test_add_submission_mixed_formats(self, uniform_distribution):
+        """Reject mixed content formats."""
+        edf = EDF(max_grade=10)
+        edf.add_submission(
+            submission_id="markdown_sub",
+            grade=5,
+            optimistic=uniform_distribution,
+            expected=uniform_distribution,
+            pessimistic=uniform_distribution,
+            content="markdown",
+        )
+        with pytest.raises(ValueError, match="Content format mismatch"):
+            edf.add_submission(
+                submission_id="pdf_sub",
+                grade=5,
+                optimistic=uniform_distribution,
+                expected=uniform_distribution,
+                pessimistic=uniform_distribution,
+                content=b"pdf bytes",
+            )
+
+    def test_get_submission(self, simple_edf):
+        """Get submission by ID."""
+        sub = simple_edf.get_submission("test_student")
+        assert sub.id == "test_student"
+        assert sub.grade == 7
+
+    def test_get_submission_not_found(self, simple_edf):
+        """get_submission raises KeyError for unknown ID."""
+        with pytest.raises(KeyError):
+            simple_edf.get_submission("nonexistent")
+
+    def test_remove_submission(self, uniform_distribution):
+        """Remove a submission."""
+        edf = EDF(max_grade=10)
+        edf.add_submission(
+            submission_id="test",
+            grade=5,
+            optimistic=uniform_distribution,
+            expected=uniform_distribution,
+            pessimistic=uniform_distribution,
+            content="content",
+        )
+        assert len(edf.submissions) == 1
+        edf.remove_submission("test")
+        assert len(edf.submissions) == 0
+
+    def test_remove_submission_not_found(self, simple_edf):
+        """remove_submission raises KeyError for unknown ID."""
+        with pytest.raises(KeyError):
+            simple_edf.remove_submission("nonexistent")
+
+    def test_submission_ids_property(self, full_edf):
+        """submission_ids returns list of IDs."""
+        ids = full_edf.submission_ids
+        assert "student_alice" in ids
+        assert "student_bob" in ids
+        assert "student_carol" in ids
+        assert len(ids) == 3
+
+
+class TestEDFSaveAndOpen:
+    """Tests for saving and opening EDF files."""
+
+    def test_save_and_open(self, simple_edf, tmp_edf_path):
+        """Save and reopen an EDF file."""
+        simple_edf.save(tmp_edf_path)
+        assert tmp_edf_path.exists()
+
+        with EDF.open(tmp_edf_path) as loaded:
+            assert loaded.max_grade == simple_edf.max_grade
+            assert loaded.task_id == simple_edf.task_id
+            assert len(loaded.submissions) == 1
+
+    def test_save_sets_created_at(self, simple_edf, tmp_edf_path):
+        """Saving sets created_at timestamp."""
+        assert simple_edf.created_at is None
+        simple_edf.save(tmp_edf_path)
+        assert simple_edf.created_at is not None
+        assert simple_edf.created_at > 0
+
+    def test_save_sets_content_hash(self, simple_edf, tmp_edf_path):
+        """Saving sets content_hash."""
+        assert simple_edf.content_hash is None
+        simple_edf.save(tmp_edf_path)
+        assert simple_edf.content_hash is not None
+        assert simple_edf.content_hash.startswith("sha256:")
+
+    def test_save_no_submissions_fails(self, tmp_edf_path):
+        """Cannot save EDF with no submissions."""
+        edf = EDF(max_grade=10)
+        with pytest.raises(ValueError, match="no submissions"):
+            edf.save(tmp_edf_path)
+
+    def test_save_full_edf(self, full_edf, tmp_edf_path):
+        """Save and reload full EDF with all features."""
+        full_edf.save(tmp_edf_path)
+
+        with EDF.open(tmp_edf_path) as loaded:
+            assert loaded.rubric == full_edf.rubric
+            assert loaded.prompt == full_edf.prompt
+            assert loaded.task_data == full_edf.task_data
+            assert len(loaded.submissions) == 3
+
+            sub = loaded.get_submission("student_alice")
+            assert sub.grade == 18
+            assert sub.additional["student_name"] == "Alice"
+
+    def test_open_with_validation(self, saved_edf):
+        """Open with validation enabled."""
+        with EDF.open(saved_edf, validate=True) as edf:
+            assert len(edf.submissions) == 3
+
+    def test_open_without_validation(self, saved_edf):
+        """Open with validation disabled."""
+        with EDF.open(saved_edf, validate=False) as edf:
+            assert len(edf.submissions) == 3
+
+    def test_context_manager(self, saved_edf):
+        """EDF works as context manager."""
+        with EDF.open(saved_edf) as edf:
+            assert edf.max_grade == 20
+        # After exiting, the file should be closed
+        # (no easy way to test this, but at least it shouldn't raise)
+
+    def test_content_preserved_after_reload(self, simple_edf, tmp_edf_path):
+        """Submission content is preserved through save/load cycle."""
+        simple_edf.save(tmp_edf_path)
+
+        with EDF.open(tmp_edf_path) as loaded:
+            sub = loaded.get_submission("test_student")
+            assert sub.get_markdown() == "Test answer content"
+
+    def test_edf_version_preserved(self, tmp_edf_path):
+        """EDF version is preserved through save/load."""
+        edf = EDF(max_grade=10, edf_version="1.0.0")
+        edf.add_submission(
+            submission_id="test",
+            grade=5,
+            optimistic=[1/11]*11,
+            expected=[1/11]*11,
+            pessimistic=[1/11]*11,
+            content="test",
+        )
+        edf.save(tmp_edf_path)
+
+        with EDF.open(tmp_edf_path) as loaded:
+            assert loaded.edf_version == "1.0.0"
+
+
+class TestEDFModification:
+    """Tests for modifying an opened EDF."""
+
+    def test_add_submission_to_opened(self, saved_edf, tmp_path):
+        """Add submission to opened EDF and save."""
+        output = tmp_path / "modified.edf"
+
+        with EDF.open(saved_edf) as edf:
+            edf.add_submission(
+                submission_id="student_new",
+                grade=10,
+                optimistic=make_distribution(11, 20),
+                expected=make_distribution(10, 20),
+                pessimistic=make_distribution(9, 20),
+                content="New student answer",
+                student_name="New Student",
+            )
+            edf.save(output)
+
+        with EDF.open(output) as reloaded:
+            assert len(reloaded.submissions) == 4
+            assert "student_new" in reloaded.submission_ids
+
+    def test_modify_rubric_and_save(self, saved_edf, tmp_path):
+        """Modify rubric and save."""
+        output = tmp_path / "modified.edf"
+
+        with EDF.open(saved_edf) as edf:
+            edf.rubric = "# Updated Rubric"
+            edf.save(output)
+
+        with EDF.open(output) as reloaded:
+            assert reloaded.rubric == "# Updated Rubric"

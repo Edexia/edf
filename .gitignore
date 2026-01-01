@@ -1,1 +1,18 @@
 __pycache__
+*.pyc
+.venv/
+private_examples
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Pytest
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
