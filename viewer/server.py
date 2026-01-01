@@ -2,10 +2,39 @@
 
 import mimetypes
 import os
+import socket
 import webbrowser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from typing import BinaryIO
+from typing import BinaryIO, Callable
+
+
+def find_available_port(start_port: int, max_attempts: int = 100) -> int:
+    """
+    Find an available port starting from start_port.
+
+    Args:
+        start_port: The port to try first
+        max_attempts: Maximum number of ports to try
+
+    Returns:
+        An available port number
+
+    Raises:
+        RuntimeError: If no available port is found within max_attempts
+    """
+    for offset in range(max_attempts):
+        port = start_port + offset
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("", port))
+                return port
+        except OSError:
+            continue
+    raise RuntimeError(
+        f"Could not find an available port after {max_attempts} attempts "
+        f"starting from port {start_port}"
+    )
 
 
 class RangeRequestHandler(SimpleHTTPRequestHandler):
@@ -157,20 +186,32 @@ class RangeRequestHandler(SimpleHTTPRequestHandler):
             super().log_message(format, *args)
 
 
-def run_viewer(edf_path: Path, port: int = 8080, open_browser: bool = True):
+def run_viewer(
+    edf_path: Path,
+    port: int = 8080,
+    open_browser: bool = True,
+    on_ready: Callable[[int], None] | None = None,
+) -> int:
     """
     Run the EDF viewer server.
 
     Args:
         edf_path: Path to the EDF file to view
-        port: Port to serve on
+        port: Port to serve on (will find next available if in use)
         open_browser: Whether to automatically open the browser
+        on_ready: Optional callback invoked with the actual port when server is ready
+
+    Returns:
+        The actual port the server ran on
     """
     # Get the static directory (relative to this file)
     static_dir = Path(__file__).parent / "static"
 
     if not static_dir.exists():
         raise RuntimeError(f"Static directory not found: {static_dir}")
+
+    # Find an available port starting from the requested one
+    actual_port = find_available_port(port)
 
     # Create a custom handler class with the file paths
     class Handler(RangeRequestHandler):
@@ -179,10 +220,14 @@ def run_viewer(edf_path: Path, port: int = 8080, open_browser: bool = True):
     Handler.edf_file_path = edf_path
     Handler.static_dir = static_dir
 
-    server = HTTPServer(("", port), Handler)
+    server = HTTPServer(("", actual_port), Handler)
+
+    # Notify caller of actual port before blocking
+    if on_ready:
+        on_ready(actual_port)
 
     if open_browser:
-        webbrowser.open(f"http://localhost:{port}")
+        webbrowser.open(f"http://localhost:{actual_port}")
 
     try:
         server.serve_forever()
@@ -190,3 +235,5 @@ def run_viewer(edf_path: Path, port: int = 8080, open_browser: bool = True):
         pass
     finally:
         server.server_close()
+
+    return actual_port

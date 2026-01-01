@@ -125,6 +125,48 @@ class TestCmdView:
             call_kwargs = mock_run.call_args
             assert call_kwargs[1]["port"] == 9999
             assert call_kwargs[1]["open_browser"] is False
+            assert call_kwargs[1]["on_ready"] is not None
+
+    def test_view_shows_port_change_message(self, saved_edf, capsys):
+        """View command shows message when port changes."""
+        args = MockArgs(
+            file=str(saved_edf),
+            port=8080,
+            no_browser=True,
+        )
+
+        def run_viewer_mock(path, port, open_browser, on_ready):
+            # Simulate port change from 8080 to 8081
+            on_ready(8081)
+            raise KeyboardInterrupt()
+
+        with patch("viewer.server.run_viewer", side_effect=run_viewer_mock):
+            result = cmd_view(args)
+
+        captured = capsys.readouterr()
+        assert "Port 8080 in use" in captured.out
+        assert "using port 8081" in captured.out
+        assert "http://localhost:8081" in captured.out
+
+    def test_view_no_port_change_message_when_same(self, saved_edf, capsys):
+        """View command doesn't show port change message when port is same."""
+        args = MockArgs(
+            file=str(saved_edf),
+            port=8080,
+            no_browser=True,
+        )
+
+        def run_viewer_mock(path, port, open_browser, on_ready):
+            # Port stays the same
+            on_ready(8080)
+            raise KeyboardInterrupt()
+
+        with patch("viewer.server.run_viewer", side_effect=run_viewer_mock):
+            result = cmd_view(args)
+
+        captured = capsys.readouterr()
+        assert "Port 8080 in use" not in captured.out
+        assert "http://localhost:8080" in captured.out
 
 
 class TestCmdInfoEdgeCases:

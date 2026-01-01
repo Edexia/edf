@@ -1,6 +1,6 @@
 [project]
 name = "edf"
-version = "0.1.0"
+version = "0.2.0"
 description = "SDK and tools for the Edexia Data Format (.edf)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -34,10 +34,10 @@ packages = ["src/edf", "viewer"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-v --cov=edf --cov-report=term-missing --cov-report=html"
+addopts = "-v --cov=edf --cov=viewer --cov-report=term-missing --cov-report=html"
 
 [tool.coverage.run]
-source = ["src/edf"]
+source = ["src/edf", "viewer"]
 branch = true
 
 [tool.coverage.report]

@@ -74,17 +74,26 @@ def cmd_view(args: argparse.Namespace) -> int:
         print(f"Error: File not found: {path}", file=sys.stderr)
         return 1
 
-    port = args.port
+    requested_port = args.port
 
     # Import here to avoid loading viewer deps when not needed
     from viewer.server import run_viewer
 
     print(f"Starting EDF viewer for: {path}")
-    print(f"Open http://localhost:{port} in your browser")
-    print("Press Ctrl+C to stop")
+
+    def on_server_ready(actual_port: int) -> None:
+        if actual_port != requested_port:
+            print(f"Port {requested_port} in use, using port {actual_port}")
+        print(f"Open http://localhost:{actual_port} in your browser")
+        print("Press Ctrl+C to stop")
 
     try:
-        run_viewer(path, port=port, open_browser=not args.no_browser)
+        run_viewer(
+            path,
+            port=requested_port,
+            open_browser=not args.no_browser,
+            on_ready=on_server_ready,
+        )
     except KeyboardInterrupt:
         print("\nStopped")
 

@@ -1,6 +1,6 @@
 # EDF Python SDK
 
-This document covers the Python SDK for reading and writing EDF files. For the file format specification, see [SPEC.md](SPEC.md).
+This document covers the Python SDK for reading and writing EDF files. For the command line interface, see [CLI.md](CLI.md). For the file format specification, see [SPEC.md](SPEC.md).
 
 ## Cookbook
 
@@ -472,24 +472,6 @@ Missing required files in archive.
 #### EDFConsistencyError
 
 Cross-file data mismatches (e.g., task_id doesn't match).
-
----
-
-### CLI
-
-Install globally:
-
-```bash
-uv tool install git+https://github.com/10decikelvin/edf
-```
-
-Commands:
-
-```bash
-edf info <file>                    # Show summary
-edf validate <file>                # Validate file
-edf view <file> [-p PORT]          # Web viewer
-```
 
 ---
 

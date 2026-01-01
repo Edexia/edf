@@ -1,0 +1,1 @@
+You MUST adhere to @CONSTITUTION.md in the project root.
