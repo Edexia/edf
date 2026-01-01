@@ -233,6 +233,15 @@ section_id (string): Section within a larger exam.
 
 ### 6.3 Standard Submission-Level Attributes
 
+**llm_context (string): Per-submission context required for accurate LLM grading.** This is the primary mechanism for providing submission-specific information that an LLM grader needs but cannot infer from the content alone. Examples include:
+- The specific question or prompt the student answered (when submissions contain only answers)
+- OCR confidence warnings or transcription notes for handwritten submissions
+- Accommodation notes (e.g., "student has dyslexia - do not penalize spelling")
+- Language context (e.g., "student is ESL - focus on content over grammar")
+- Any per-student variation in grading criteria
+
+This attribute is essential for LLM-based grading systems where context varies per submission.
+
 student_name (string): Human-readable student name.
 
 student_id (string): Institutional student identifier.

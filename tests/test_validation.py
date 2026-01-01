@@ -624,3 +624,4 @@ class TestRegisteredAttributes:
         assert "student_id" in REGISTERED_SUBMISSION_ATTRIBUTES
         assert "grader_id" in REGISTERED_SUBMISSION_ATTRIBUTES
         assert "marker_feedback" in REGISTERED_SUBMISSION_ATTRIBUTES
+        assert "llm_context" in REGISTERED_SUBMISSION_ATTRIBUTES

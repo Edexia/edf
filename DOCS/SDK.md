@@ -64,6 +64,46 @@ with EDF.open("assignment.edf") as edf:
                 f.write(img_bytes)
 ```
 
+### Add LLM grading context (important!)
+
+The `llm_context` attribute provides per-submission information that an LLM grader needs for accurate assessment. **This is essential when context varies between submissions.**
+
+```python
+edf = EDF(max_grade=20)
+
+# Submission where the student answered a specific question
+edf.add_submission(
+    submission_id="student_alice",
+    grade=15,
+    optimistic=[...], expected=[...], pessimistic=[...],
+    content="The mitochondria is the powerhouse of the cell because...",
+    llm_context="""
+Question attempted: Q3 - Explain the role of mitochondria in cellular respiration.
+Worth 20 marks. Award marks for: identifying ATP production (5), explaining
+electron transport chain (10), mentioning oxygen's role (5).
+""",
+)
+
+# Submission with OCR/handwriting notes
+edf.add_submission(
+    submission_id="student_bob",
+    grade=12,
+    optimistic=[...], expected=[...], pessimistic=[...],
+    content="[OCR transcription of handwritten work]...",
+    llm_context="""
+Question attempted: Q3 - Explain the role of mitochondria.
+OCR confidence: 87%. Page 2 paragraph 3 may have transcription errors.
+Student has dyslexia accommodation - do not penalize spelling errors.
+""",
+)
+```
+
+Use `llm_context` for:
+- The specific question/prompt the student answered
+- OCR confidence warnings for scanned submissions
+- Accommodation notes (dyslexia, ESL, extra time, etc.)
+- Any per-student grading variations
+
 ### Add metadata to tasks and submissions
 
 ```python
@@ -87,6 +127,7 @@ edf.add_submission(
     student_name="Bob Jones",      # additional
     student_id="2025-042",         # additional
     grader_id="prof_smith",        # additional
+    llm_context="Question: Q5. No accommodations.",  # LLM context
 )
 ```
 

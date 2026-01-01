@@ -36,6 +36,7 @@ REGISTERED_SUBMISSION_ATTRIBUTES = {
     "time_taken_minutes",
     "attempt_number",
     "marker_feedback",
+    "llm_context",  # Per-submission context for LLM grading (e.g., OCR warnings, dyslexia accommodations, question attempted)
 }
 
 

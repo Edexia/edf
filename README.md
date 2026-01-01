@@ -78,6 +78,8 @@ edf.add_submission(
     pessimistic=[0]*12 + [0.1, 0.2, 0.3, 0.25, 0.1, 0.05, 0, 0, 0],
     content="The student's markdown answer here...",
     student_name="Alice Smith",
+    # Per-submission context for LLM grading (question attempted, accommodations, etc.)
+    llm_context="Question: Q2 - Explain photosynthesis. Student has dyslexia accommodation.",
 )
 
 edf.save("output.edf")
