@@ -38,8 +38,14 @@ uv run edf <command>
 Show summary information about an EDF file.
 
 ```bash
-edf info <file>
+edf info <file> [--dangerously-load-unzipped]
 ```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--dangerously-load-unzipped` | Load from an unzipped directory instead of a .edf file |
 
 **Example:**
 
@@ -90,8 +96,14 @@ Sub Attrs:      student_name, grader_id
 Validate an EDF file and report any errors.
 
 ```bash
-edf validate <file>
+edf validate <file> [--dangerously-load-unzipped]
 ```
+
+**Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--dangerously-load-unzipped` | Load from an unzipped directory (skips hash validation) |
 
 **Example (valid file):**
 
@@ -277,3 +289,46 @@ Common issues:
 The viewer uses HTTP range requests for efficient loading. For very large files (>1GB), consider:
 - Using `edf info` for quick inspection without loading content
 - Running the viewer locally rather than over a network
+
+---
+
+## Working with Unzipped Directories
+
+For development and testing, you can work directly with unzipped EDF directories using the `--dangerously-load-unzipped` flag.
+
+### Workflow
+
+```bash
+# 1. Unzip an existing EDF
+unzip task.edf -d ./task_dir/
+
+# 2. Edit files directly (e.g., in VS Code)
+code ./task_dir/
+
+# 3. View info without re-zipping
+edf info ./task_dir/ --dangerously-load-unzipped
+
+# 4. Validate structure (hash validation skipped)
+edf validate ./task_dir/ --dangerously-load-unzipped
+```
+
+### Output
+
+When using `--dangerously-load-unzipped`, the output indicates ephemeral status:
+
+```bash
+$ edf info ./task_dir/ --dangerously-load-unzipped
+** EPHEMERAL EDF (loaded from directory) **
+EDF Version:    1.0.0
+Task ID:        00000000-0000-0000-0000-000000000000
+Version:        0
+Content Hash:   N/A
+Created:        None
+...
+```
+
+### Limitations
+
+- The `edf view` command does not support unzipped directories
+- Hash validation is skipped (the content hash can't be verified without re-computing it)
+- The ephemeral `task_id` and `version=0` indicate this is not a versioned EDF

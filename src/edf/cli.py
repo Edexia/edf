@@ -8,15 +8,36 @@ from edf.core import EDF
 from edf.exceptions import EDFValidationError
 
 
+def _open_edf(path: Path, dangerously_load_unzipped: bool, validate: bool = False) -> EDF:
+    """Open an EDF file or directory based on flags."""
+    if dangerously_load_unzipped:
+        if not path.is_dir():
+            raise ValueError(
+                f"--dangerously-load-unzipped requires a directory, not a file: {path}"
+            )
+        return EDF.from_directory(path, dangerously_load_unzipped_edf=True)
+    else:
+        if path.is_dir():
+            raise ValueError(
+                f"'{path}' is a directory. Use --dangerously-load-unzipped to load from an unzipped EDF directory."
+            )
+        return EDF.open(path, validate=validate)
+
+
 def cmd_info(args: argparse.Namespace) -> int:
     """Show summary information about an EDF file."""
     path = Path(args.file)
+    dangerously_load_unzipped = getattr(args, "dangerously_load_unzipped", False)
+
     if not path.exists():
         print(f"Error: File not found: {path}", file=sys.stderr)
         return 1
 
     try:
-        with EDF.open(path, validate=False) as edf:
+        edf = _open_edf(path, dangerously_load_unzipped, validate=False)
+        try:
+            if edf.is_ephemeral:
+                print("** EPHEMERAL EDF (loaded from directory) **")
             print(f"EDF Version:    {edf.edf_version}")
             print(f"Task ID:        {edf.task_id}")
             print(f"Version:        {edf.version}")
@@ -36,6 +57,8 @@ def cmd_info(args: argparse.Namespace) -> int:
                 sub_attrs.update(sub.additional.keys())
             if sub_attrs:
                 print(f"Sub Attrs:      {', '.join(sorted(sub_attrs))}")
+        finally:
+            edf.close()
 
     except Exception as e:
         print(f"Error reading file: {e}", file=sys.stderr)
@@ -47,16 +70,33 @@ def cmd_info(args: argparse.Namespace) -> int:
 def cmd_validate(args: argparse.Namespace) -> int:
     """Validate an EDF file and report any errors."""
     path = Path(args.file)
+    dangerously_load_unzipped = getattr(args, "dangerously_load_unzipped", False)
+
     if not path.exists():
         print(f"Error: File not found: {path}", file=sys.stderr)
         return 1
 
     try:
-        with EDF.open(path, validate=True) as edf:
-            print(f"Valid: {path}")
-            print(f"  Task ID: {edf.task_id}")
-            print(f"  Submissions: {len(edf.submissions)}")
-            return 0
+        # For unzipped directories, we can only do basic structure check (no hash validation)
+        if dangerously_load_unzipped:
+            edf = _open_edf(path, dangerously_load_unzipped, validate=False)
+            try:
+                print(f"Loaded (ephemeral): {path}")
+                print("  Note: Hash validation skipped for unzipped directories")
+                print(f"  Submissions: {len(edf.submissions)}")
+                return 0
+            finally:
+                edf.close()
+        else:
+            if path.is_dir():
+                raise ValueError(
+                    f"'{path}' is a directory. Use --dangerously-load-unzipped to load from an unzipped EDF directory."
+                )
+            with EDF.open(path, validate=True) as edf:
+                print(f"Valid: {path}")
+                print(f"  Task ID: {edf.task_id}")
+                print(f"  Submissions: {len(edf.submissions)}")
+                return 0
     except EDFValidationError as e:
         print(f"Invalid: {path}", file=sys.stderr)
         for error in e.errors:
@@ -70,8 +110,18 @@ def cmd_validate(args: argparse.Namespace) -> int:
 def cmd_view(args: argparse.Namespace) -> int:
     """Start a web viewer for an EDF file."""
     path = Path(args.file).resolve()
+
     if not path.exists():
         print(f"Error: File not found: {path}", file=sys.stderr)
+        return 1
+
+    # Viewer only works with zipped EDF files, not directories
+    if path.is_dir():
+        print(
+            "Error: The viewer does not support unzipped directories. "
+            "Use 'edf info' or 'edf validate' with --dangerously-load-unzipped instead.",
+            file=sys.stderr,
+        )
         return 1
 
     requested_port = args.port
@@ -100,6 +150,16 @@ def cmd_view(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_unzipped_arg(parser: argparse.ArgumentParser) -> None:
+    """Add the --dangerously-load-unzipped argument to a parser."""
+    parser.add_argument(
+        "--dangerously-load-unzipped",
+        action="store_true",
+        help="Load from an unzipped EDF directory instead of a .edf file. "
+             "Bypasses integrity checks and versioning.",
+    )
+
+
 def main() -> int:
     """Main entry point for the EDF CLI."""
     parser = argparse.ArgumentParser(
@@ -112,15 +172,17 @@ def main() -> int:
     info_parser = subparsers.add_parser(
         "info", help="Show summary information about an EDF file"
     )
-    info_parser.add_argument("file", help="Path to the .edf file")
+    info_parser.add_argument("file", help="Path to the .edf file or directory")
+    _add_unzipped_arg(info_parser)
 
     # validate command
     validate_parser = subparsers.add_parser(
         "validate", help="Validate an EDF file and report any errors"
     )
-    validate_parser.add_argument("file", help="Path to the .edf file")
+    validate_parser.add_argument("file", help="Path to the .edf file or directory")
+    _add_unzipped_arg(validate_parser)
 
-    # view command
+    # view command (does not support --dangerously-load-unzipped)
     view_parser = subparsers.add_parser(
         "view", help="Start a web viewer for an EDF file"
     )

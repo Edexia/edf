@@ -290,6 +290,24 @@ Open an existing EDF file.
 
 Raises `EDFValidationError` if validation fails.
 
+##### EDF.from_directory
+
+```python
+EDF.from_directory(
+    path: str | Path,
+    dangerously_load_unzipped_edf: bool = False,
+) -> EDF
+```
+
+Load an EDF from an unzipped directory. Creates an ephemeral EDF with sentinel `task_id` and `version=0`. See [Ephemeral EDFs](#ephemeral-edfs-developmenttesting) for details.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `path` | `str \| Path` | required | Path to unzipped EDF directory |
+| `dangerously_load_unzipped_edf` | `bool` | `False` | Must be `True` to proceed |
+
+Raises `ValueError` if flag is not True, `EDFError` if directory structure is invalid.
+
 #### Properties
 
 | Property | Type | Writable | Description |
@@ -306,6 +324,7 @@ Raises `EDFValidationError` if validation fails.
 | `submissions` | `list[Submission]` | No | All submissions |
 | `submission_ids` | `list[str]` | No | All submission IDs |
 | `content_format` | `ContentFormat \| None` | No | Format of submissions |
+| `is_ephemeral` | `bool` | No | True if loaded from directory |
 
 #### Methods
 
@@ -502,7 +521,70 @@ Cross-file data mismatches (e.g., task_id doesn't match).
 ### Constants
 
 ```python
-from edf import EDF_VERSION
+from edf import EDF_VERSION, EPHEMERAL_TASK_ID, EPHEMERAL_VERSION
 
 print(EDF_VERSION)  # "1.0.0"
+print(EPHEMERAL_TASK_ID)  # "00000000-0000-0000-0000-000000000000"
+print(EPHEMERAL_VERSION)  # 0
+```
+
+---
+
+### Ephemeral EDFs (Development/Testing)
+
+For rapid iteration during development, you can load an unzipped EDF directory directly. This creates an "ephemeral" EDF that bypasses versioning and integrity checks.
+
+#### Loading from Directory
+
+```python
+from edf import EDF, EPHEMERAL_TASK_ID
+
+# First, unzip an EDF manually:
+#   unzip task.edf -d ./task_dir/
+
+# Then load it directly (requires explicit flag)
+edf = EDF.from_directory("./task_dir/", dangerously_load_unzipped_edf=True)
+
+# Ephemeral properties
+print(edf.is_ephemeral)   # True
+print(edf.task_id)        # "00000000-0000-0000-0000-000000000000"
+print(edf.version)        # 0
+print(edf.content_hash)   # None
+print(edf.created_at)     # None
+```
+
+#### Workflow
+
+1. Unzip an EDF: `unzip task.edf -d ./task_dir/`
+2. Edit files directly in `./task_dir/` (e.g., modify `submissions/student_1/content.md`)
+3. Load and test: `EDF.from_directory("./task_dir/", dangerously_load_unzipped_edf=True)`
+4. Repeat steps 2-3 as needed
+
+#### Saving Ephemeral EDFs
+
+When you save an ephemeral EDF, it automatically gets a new UUID and becomes a "real" EDF:
+
+```python
+edf = EDF.from_directory("./task_dir/", dangerously_load_unzipped_edf=True)
+print(edf.is_ephemeral)  # True
+
+edf.save("output.edf")   # Prints warning, generates new UUID
+print(edf.is_ephemeral)  # False
+print(edf.task_id)       # New UUID like "550e8400-e29b-41d4-a716-..."
+print(edf.version)       # 1
+```
+
+#### is_ephemeral Property
+
+Check if an EDF was loaded from an unzipped directory:
+
+```python
+edf1 = EDF(max_grade=10)
+print(edf1.is_ephemeral)  # False
+
+with EDF.open("task.edf") as edf2:
+    print(edf2.is_ephemeral)  # False
+
+edf3 = EDF.from_directory("./dir/", dangerously_load_unzipped_edf=True)
+print(edf3.is_ephemeral)  # True
 ```

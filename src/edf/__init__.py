@@ -5,7 +5,7 @@ A Python library for reading and writing EDF files, which are ZIP archives
 containing grading data for automated learning systems.
 """
 
-from edf.core import EDF, Submission, EDF_VERSION
+from edf.core import EDF, Submission, EDF_VERSION, EPHEMERAL_TASK_ID, EPHEMERAL_VERSION
 from edf.exceptions import (
     EDFError,
     EDFValidationError,
@@ -22,13 +22,15 @@ from edf.models import (
     AdditionalDataDeclaration,
 )
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     # Main class
     "EDF",
     "Submission",
     "EDF_VERSION",
+    "EPHEMERAL_TASK_ID",
+    "EPHEMERAL_VERSION",
     # Exceptions
     "EDFError",
     "EDFValidationError",

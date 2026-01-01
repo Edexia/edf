@@ -5,8 +5,8 @@ import pytest
 import uuid
 from pathlib import Path
 
-from edf import EDF, EDF_VERSION, ContentFormat
-from edf.exceptions import EDFValidationError
+from edf import EDF, EDF_VERSION, ContentFormat, EPHEMERAL_TASK_ID, EPHEMERAL_VERSION
+from edf.exceptions import EDFError, EDFValidationError
 
 
 def make_distribution(peak: int, max_grade: int, sigma: float = 2.0) -> list[float]:
@@ -508,3 +508,239 @@ class TestEDFModification:
 
         with EDF.open(output) as reloaded:
             assert reloaded.rubric == "# Updated Rubric"
+
+
+class TestEDFFromDirectory:
+    """Tests for loading EDFs from unzipped directories."""
+
+    def test_from_directory_requires_flag(self, unzipped_edf_dir):
+        """from_directory requires dangerously_load_unzipped_edf=True."""
+        with pytest.raises(ValueError, match="dangerously_load_unzipped_edf"):
+            EDF.from_directory(unzipped_edf_dir)
+
+    def test_from_directory_loads_markdown_edf(self, unzipped_edf_dir):
+        """Load a markdown EDF from directory."""
+        edf = EDF.from_directory(unzipped_edf_dir, dangerously_load_unzipped_edf=True)
+        assert edf.is_ephemeral
+        assert edf.task_id == EPHEMERAL_TASK_ID
+        assert edf.version == EPHEMERAL_VERSION
+        assert len(edf.submissions) == 3
+        assert edf.content_format == ContentFormat.MARKDOWN
+
+    def test_from_directory_loads_pdf_edf(self, unzipped_pdf_edf_dir):
+        """Load a PDF EDF from directory."""
+        edf = EDF.from_directory(unzipped_pdf_edf_dir, dangerously_load_unzipped_edf=True)
+        assert edf.is_ephemeral
+        assert edf.content_format == ContentFormat.PDF
+        sub = edf.get_submission("sub1")
+        assert sub.get_pdf() == b"%PDF-1.4 fake pdf"
+
+    def test_from_directory_loads_images_edf(self, unzipped_images_edf_dir):
+        """Load an images EDF from directory."""
+        edf = EDF.from_directory(unzipped_images_edf_dir, dangerously_load_unzipped_edf=True)
+        assert edf.is_ephemeral
+        assert edf.content_format == ContentFormat.IMAGES
+        sub = edf.get_submission("sub1")
+        images = sub.get_images()
+        assert len(images) == 2
+        assert images[0] == b"fake jpg 0"
+        assert images[1] == b"fake jpg 1"
+
+    def test_from_directory_loads_rubric_and_prompt(self, unzipped_edf_dir):
+        """Load rubric and prompt from directory."""
+        edf = EDF.from_directory(unzipped_edf_dir, dangerously_load_unzipped_edf=True)
+        assert edf.rubric is not None
+        assert "Criterion 1" in edf.rubric
+        assert edf.prompt is not None
+        assert "Assignment" in edf.prompt
+
+    def test_from_directory_loads_task_data(self, unzipped_edf_dir):
+        """Load task additional data from directory."""
+        edf = EDF.from_directory(unzipped_edf_dir, dangerously_load_unzipped_edf=True)
+        assert edf.task_data["school_id"] == "TEST-001"
+        assert edf.task_data["subject_code"] == "TEST-101"
+
+    def test_from_directory_loads_submission_data(self, unzipped_edf_dir):
+        """Load submission additional data from directory."""
+        edf = EDF.from_directory(unzipped_edf_dir, dangerously_load_unzipped_edf=True)
+        sub = edf.get_submission("student_alice")
+        assert sub.additional["student_name"] == "Alice"
+
+    def test_from_directory_not_a_directory(self, saved_edf):
+        """from_directory raises error for file path."""
+        with pytest.raises(EDFError, match="Not a directory"):
+            EDF.from_directory(saved_edf, dangerously_load_unzipped_edf=True)
+
+    def test_from_directory_missing_manifest(self, tmp_path):
+        """from_directory raises error for missing manifest."""
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+        with pytest.raises(EDFError, match="Missing manifest.json"):
+            EDF.from_directory(empty_dir, dangerously_load_unzipped_edf=True)
+
+    def test_from_directory_missing_task_core(self, tmp_path):
+        """from_directory raises error for missing task/core.json."""
+        import json
+        edf_dir = tmp_path / "edf"
+        edf_dir.mkdir()
+        manifest = {
+            "edf_version": "1.0.0",
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "content_hash": "sha256:" + "a" * 64,
+            "created_at": 1700000000000,
+            "content_format": "markdown",
+            "submission_count": 0,
+            "has_rubric": False,
+            "has_prompt": False,
+            "additional_data": {"task": [], "submission": []},
+        }
+        (edf_dir / "manifest.json").write_text(json.dumps(manifest))
+        with pytest.raises(EDFError, match="Missing task/core.json"):
+            EDF.from_directory(edf_dir, dangerously_load_unzipped_edf=True)
+
+    def test_from_directory_missing_submissions_index(self, tmp_path):
+        """from_directory raises error for missing submissions/_index.json."""
+        import json
+        edf_dir = tmp_path / "edf"
+        edf_dir.mkdir()
+        manifest = {
+            "edf_version": "1.0.0",
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "content_hash": "sha256:" + "a" * 64,
+            "created_at": 1700000000000,
+            "content_format": "markdown",
+            "submission_count": 0,
+            "has_rubric": False,
+            "has_prompt": False,
+            "additional_data": {"task": [], "submission": []},
+        }
+        (edf_dir / "manifest.json").write_text(json.dumps(manifest))
+        task_dir = edf_dir / "task"
+        task_dir.mkdir()
+        (task_dir / "core.json").write_text(json.dumps({
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "version": 1,
+            "max_grade": 10,
+        }))
+        with pytest.raises(EDFError, match="Missing submissions/_index.json"):
+            EDF.from_directory(edf_dir, dangerously_load_unzipped_edf=True)
+
+    def test_from_directory_missing_submission_core(self, tmp_path):
+        """from_directory raises error for missing submission core.json."""
+        import json
+        edf_dir = tmp_path / "edf"
+        edf_dir.mkdir()
+        manifest = {
+            "edf_version": "1.0.0",
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "content_hash": "sha256:" + "a" * 64,
+            "created_at": 1700000000000,
+            "content_format": "markdown",
+            "submission_count": 1,
+            "has_rubric": False,
+            "has_prompt": False,
+            "additional_data": {"task": [], "submission": []},
+        }
+        (edf_dir / "manifest.json").write_text(json.dumps(manifest))
+        task_dir = edf_dir / "task"
+        task_dir.mkdir()
+        (task_dir / "core.json").write_text(json.dumps({
+            "task_id": "550e8400-e29b-41d4-a716-446655440000",
+            "version": 1,
+            "max_grade": 10,
+        }))
+        submissions_dir = edf_dir / "submissions"
+        submissions_dir.mkdir()
+        (submissions_dir / "_index.json").write_text(json.dumps({"submission_ids": ["sub1"]}))
+        (submissions_dir / "sub1").mkdir()
+        with pytest.raises(EDFError, match="Missing submissions/sub1/core.json"):
+            EDF.from_directory(edf_dir, dangerously_load_unzipped_edf=True)
+
+    def test_ephemeral_edf_has_no_created_at(self, unzipped_edf_dir):
+        """Ephemeral EDFs have created_at=None."""
+        edf = EDF.from_directory(unzipped_edf_dir, dangerously_load_unzipped_edf=True)
+        assert edf.created_at is None
+
+    def test_ephemeral_edf_has_no_content_hash(self, unzipped_edf_dir):
+        """Ephemeral EDFs have content_hash=None."""
+        edf = EDF.from_directory(unzipped_edf_dir, dangerously_load_unzipped_edf=True)
+        assert edf.content_hash is None
+
+    def test_from_directory_handles_missing_declared_files(self, unzipped_edf_missing_files):
+        """from_directory gracefully handles missing rubric/prompt/additional_data files."""
+        # The manifest declares rubric, prompt, and additional_data but they don't exist
+        edf = EDF.from_directory(unzipped_edf_missing_files, dangerously_load_unzipped_edf=True)
+
+        # These should be None/empty since the files don't exist
+        assert edf.rubric is None
+        assert edf.prompt is None
+        assert edf.task_data == {}
+        sub = edf.get_submission("sub1")
+        assert sub.additional == {}
+
+
+class TestEDFEphemeralSave:
+    """Tests for saving ephemeral EDFs."""
+
+    def test_save_ephemeral_generates_new_uuid(self, unzipped_edf_dir, tmp_path, capsys):
+        """Saving an ephemeral EDF generates a new task_id."""
+        edf = EDF.from_directory(unzipped_edf_dir, dangerously_load_unzipped_edf=True)
+        assert edf.is_ephemeral
+
+        output = tmp_path / "saved.edf"
+        edf.save(output)
+
+        # Should no longer be ephemeral after save
+        assert not edf.is_ephemeral
+        assert edf.task_id != EPHEMERAL_TASK_ID
+        assert edf.version == 1
+
+        # Should have printed warning
+        captured = capsys.readouterr()
+        assert "Warning: Saving ephemeral EDF" in captured.err
+        assert "Generated new task_id" in captured.err
+
+    def test_saved_ephemeral_can_be_reopened(self, unzipped_edf_dir, tmp_path):
+        """A saved ephemeral EDF can be reopened normally."""
+        edf = EDF.from_directory(unzipped_edf_dir, dangerously_load_unzipped_edf=True)
+        output = tmp_path / "saved.edf"
+        edf.save(output)
+        saved_task_id = edf.task_id
+
+        with EDF.open(output, validate=True) as reloaded:
+            assert reloaded.task_id == saved_task_id
+            assert reloaded.version == 1
+            assert len(reloaded.submissions) == 3
+
+
+class TestIsEphemeralProperty:
+    """Tests for the is_ephemeral property."""
+
+    def test_new_edf_not_ephemeral(self):
+        """Newly created EDF is not ephemeral."""
+        edf = EDF(max_grade=10)
+        assert not edf.is_ephemeral
+
+    def test_opened_edf_not_ephemeral(self, saved_edf):
+        """EDF opened from file is not ephemeral."""
+        with EDF.open(saved_edf) as edf:
+            assert not edf.is_ephemeral
+
+    def test_ephemeral_edf_from_directory(self, unzipped_edf_dir):
+        """EDF loaded from directory is ephemeral."""
+        edf = EDF.from_directory(unzipped_edf_dir, dangerously_load_unzipped_edf=True)
+        assert edf.is_ephemeral
+
+
+class TestOpenDirectoryError:
+    """Tests for helpful error when opening a directory with EDF.open()."""
+
+    def test_open_directory_gives_helpful_error(self, unzipped_edf_dir):
+        """EDF.open() on a directory gives a helpful error message."""
+        with pytest.raises(EDFError, match="is a directory"):
+            EDF.open(unzipped_edf_dir)
+
+    def test_open_directory_suggests_from_directory(self, unzipped_edf_dir):
+        """Error message suggests using from_directory()."""
+        with pytest.raises(EDFError, match="from_directory"):
+            EDF.open(unzipped_edf_dir)

@@ -281,3 +281,104 @@ class TestMainEntrypoint:
                 mock_run.side_effect = KeyboardInterrupt()
                 result = main()
                 assert result == 0
+
+
+class TestUnzippedEDFCommands:
+    """Tests for CLI commands with --dangerously-load-unzipped flag."""
+
+    def test_info_unzipped_directory(self, unzipped_edf_dir, capsys):
+        """Info command on unzipped directory."""
+        args = MockArgs(file=str(unzipped_edf_dir), dangerously_load_unzipped=True)
+        result = cmd_info(args)
+        assert result == 0
+
+        captured = capsys.readouterr()
+        assert "EPHEMERAL EDF" in captured.out
+        assert "00000000-0000-0000-0000-000000000000" in captured.out
+
+    def test_info_unzipped_shows_submissions(self, unzipped_edf_dir, capsys):
+        """Info command on unzipped shows submission count."""
+        args = MockArgs(file=str(unzipped_edf_dir), dangerously_load_unzipped=True)
+        cmd_info(args)
+
+        captured = capsys.readouterr()
+        assert "Submissions:    3" in captured.out
+
+    def test_validate_unzipped_directory(self, unzipped_edf_dir, capsys):
+        """Validate command on unzipped directory."""
+        args = MockArgs(file=str(unzipped_edf_dir), dangerously_load_unzipped=True)
+        result = cmd_validate(args)
+        assert result == 0
+
+        captured = capsys.readouterr()
+        assert "ephemeral" in captured.out.lower()
+        assert "Hash validation skipped" in captured.out
+
+    def test_info_unzipped_requires_directory(self, saved_edf, capsys):
+        """Info command with --dangerously-load-unzipped requires a directory."""
+        args = MockArgs(file=str(saved_edf), dangerously_load_unzipped=True)
+        result = cmd_info(args)
+        assert result == 1
+
+        captured = capsys.readouterr()
+        assert "requires a directory" in captured.err
+
+    def test_validate_unzipped_requires_directory(self, saved_edf, capsys):
+        """Validate command with --dangerously-load-unzipped requires a directory."""
+        args = MockArgs(file=str(saved_edf), dangerously_load_unzipped=True)
+        result = cmd_validate(args)
+        assert result == 1
+
+        captured = capsys.readouterr()
+        assert "requires a directory" in captured.err
+
+    def test_view_directory_not_supported(self, unzipped_edf_dir, capsys):
+        """View command does not support directories."""
+        args = MockArgs(
+            file=str(unzipped_edf_dir),
+            port=8080,
+            no_browser=True,
+        )
+        result = cmd_view(args)
+        assert result == 1
+
+        captured = capsys.readouterr()
+        assert "does not support unzipped directories" in captured.err
+
+    def test_main_info_unzipped(self, unzipped_edf_dir):
+        """Main with info and --dangerously-load-unzipped."""
+        with patch.object(
+            sys, "argv",
+            ["edf", "info", str(unzipped_edf_dir), "--dangerously-load-unzipped"]
+        ):
+            result = main()
+            assert result == 0
+
+    def test_main_validate_unzipped(self, unzipped_edf_dir):
+        """Main with validate and --dangerously-load-unzipped."""
+        with patch.object(
+            sys, "argv",
+            ["edf", "validate", str(unzipped_edf_dir), "--dangerously-load-unzipped"]
+        ):
+            result = main()
+            assert result == 0
+
+    def test_info_directory_without_flag_shows_hint(self, unzipped_edf_dir, capsys):
+        """Info on directory without flag shows helpful message."""
+        args = MockArgs(file=str(unzipped_edf_dir), dangerously_load_unzipped=False)
+        result = cmd_info(args)
+        assert result == 1
+
+        captured = capsys.readouterr()
+        assert "is a directory" in captured.err
+        assert "--dangerously-load-unzipped" in captured.err
+
+    def test_validate_directory_without_flag_shows_hint(self, unzipped_edf_dir, capsys):
+        """Validate on directory without flag shows helpful message."""
+        args = MockArgs(file=str(unzipped_edf_dir), dangerously_load_unzipped=False)
+        result = cmd_validate(args)
+        assert result == 1
+
+        captured = capsys.readouterr()
+        assert "is a directory" in captured.err
+        assert "--dangerously-load-unzipped" in captured.err

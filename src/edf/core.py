@@ -26,6 +26,10 @@ from edf.validation import validate_edf
 
 EDF_VERSION = "1.0.0"
 
+# Sentinel UUID for ephemeral EDFs (loaded from unzipped directories)
+EPHEMERAL_TASK_ID = "00000000-0000-0000-0000-000000000000"
+EPHEMERAL_VERSION = 0
+
 
 @dataclass
 class Submission:
@@ -116,6 +120,12 @@ class EDF:
         Returns:
             An EDF instance with the file's contents loaded
         """
+        path = Path(path)
+        if path.is_dir():
+            raise EDFError(
+                f"'{path}' is a directory. Use EDF.from_directory() with "
+                "dangerously_load_unzipped_edf=True to load from an unzipped directory."
+            )
         zf = ZipFile(path, "r")
 
         try:
@@ -201,6 +211,139 @@ class EDF:
         except Exception:
             zf.close()
             raise
+
+    @classmethod
+    def from_directory(
+        cls,
+        path: str | Path,
+        dangerously_load_unzipped_edf: bool = False,
+    ) -> EDF:
+        """
+        Load an EDF from an unzipped directory.
+
+        This creates an ephemeral EDF with a sentinel task_id and version=0.
+        The EDF cannot be traced back to any versioned source.
+        Useful for development and testing where you want to edit files directly.
+
+        Args:
+            path: Path to the unzipped EDF directory (containing manifest.json)
+            dangerously_load_unzipped_edf: Must be True to acknowledge the risks
+
+        Returns:
+            An ephemeral EDF instance
+
+        Raises:
+            ValueError: If dangerously_load_unzipped_edf is not True
+            EDFError: If the directory structure is invalid
+        """
+        if not dangerously_load_unzipped_edf:
+            raise ValueError(
+                "Loading unzipped EDFs bypasses integrity checks and versioning. "
+                "Set dangerously_load_unzipped_edf=True to proceed."
+            )
+
+        path = Path(path)
+        if not path.is_dir():
+            raise EDFError(f"Not a directory: {path}")
+
+        # Read manifest
+        manifest_path = path / "manifest.json"
+        if not manifest_path.exists():
+            raise EDFError(f"Missing manifest.json in {path}")
+
+        manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = Manifest.model_validate(manifest_data)
+
+        # Read task core
+        task_path = path / "task" / "core.json"
+        if not task_path.exists():
+            raise EDFError(f"Missing task/core.json in {path}")
+
+        task_data = json.loads(task_path.read_text(encoding="utf-8"))
+        task_core = TaskCore.model_validate(task_data)
+
+        # Create ephemeral instance
+        edf = cls(
+            max_grade=task_core.max_grade,
+            task_id=EPHEMERAL_TASK_ID,
+            version=EPHEMERAL_VERSION,
+            edf_version=manifest.edf_version,
+        )
+        edf._created_at = None  # Ephemeral EDFs have no created_at
+        edf._content_hash = None  # No hash for ephemeral EDFs
+
+        # Read rubric and prompt
+        if manifest.has_rubric:
+            rubric_path = path / "task" / "rubric.md"
+            if rubric_path.exists():
+                edf._rubric = rubric_path.read_text(encoding="utf-8")
+
+        if manifest.has_prompt:
+            prompt_path = path / "task" / "prompt.md"
+            if prompt_path.exists():
+                edf._prompt = prompt_path.read_text(encoding="utf-8")
+
+        # Read task additional data
+        if manifest.additional_data.task:
+            additional_path = path / "task" / "additional_data.json"
+            if additional_path.exists():
+                edf._task_additional = json.loads(
+                    additional_path.read_text(encoding="utf-8")
+                )
+
+        # Read submissions
+        index_path = path / "submissions" / "_index.json"
+        if not index_path.exists():
+            raise EDFError(f"Missing submissions/_index.json in {path}")
+
+        index_data = json.loads(index_path.read_text(encoding="utf-8"))
+        index = SubmissionIndex.model_validate(index_data)
+
+        for sid in index.submission_ids:
+            sub_dir = path / "submissions" / sid
+            sub_core_path = sub_dir / "core.json"
+            if not sub_core_path.exists():
+                raise EDFError(f"Missing submissions/{sid}/core.json in {path}")
+
+            sub_core_data = json.loads(sub_core_path.read_text(encoding="utf-8"))
+            sub_core = SubmissionCore.model_validate(sub_core_data)
+
+            # Read additional data
+            sub_additional = {}
+            if manifest.additional_data.submission:
+                additional_path = sub_dir / "additional_data.json"
+                if additional_path.exists():
+                    sub_additional = json.loads(
+                        additional_path.read_text(encoding="utf-8")
+                    )
+
+            # Read content
+            if manifest.content_format == ContentFormat.MARKDOWN:
+                content_path = sub_dir / "content.md"
+                content = content_path.read_text(encoding="utf-8")
+            elif manifest.content_format == ContentFormat.PDF:
+                content_path = sub_dir / "content.pdf"
+                content = content_path.read_bytes()
+            else:  # IMAGES
+                content = []
+                pages_dir = sub_dir / "pages"
+                i = 0
+                while True:
+                    img_path = pages_dir / f"{i}.jpg"
+                    if not img_path.exists():
+                        break
+                    content.append(img_path.read_bytes())
+                    i += 1
+
+            edf._submissions[sid] = Submission(
+                id=sid,
+                grade=sub_core.grade,
+                distributions=sub_core.grade_distributions,
+                content=content,
+                additional=sub_additional,
+            )
+
+        return edf
 
     def close(self) -> None:
         """Close the underlying ZIP file if opened from disk."""
@@ -291,6 +434,11 @@ class EDF:
         if not self._submissions:
             return None
         return next(iter(self._submissions.values())).content_format
+
+    @property
+    def is_ephemeral(self) -> bool:
+        """True if this EDF was loaded from an unzipped directory."""
+        return self._task_id == EPHEMERAL_TASK_ID
 
     # Methods
 
@@ -412,11 +560,26 @@ class EDF:
         """
         Save the EDF to a file.
 
+        If saving an ephemeral EDF (loaded from directory), a new UUID and
+        version will be auto-generated, and a warning will be printed.
+
         Args:
             path: Output path for the .edf file
         """
         if not self._submissions:
             raise ValueError("Cannot save EDF with no submissions")
+
+        # Auto-generate UUID for ephemeral EDFs
+        if self.is_ephemeral:
+            import sys
+            new_id = str(uuid.uuid4())
+            print(
+                f"Warning: Saving ephemeral EDF. "
+                f"Generated new task_id: {new_id}",
+                file=sys.stderr,
+            )
+            self._task_id = new_id
+            self._version = 1
 
         # Collect additional data attribute names
         task_attrs = sorted(self._task_additional.keys())
