@@ -161,7 +161,9 @@
                             <dl>
                                 ${Object.entries(submission.additional).map(([key, value]) => html`
                                     <dt>${key}</dt>
-                                    <dd>${value ?? 'N/A'}</dd>
+                                    <dd>${typeof value === 'string'
+                                        ? html`<div class="content-markdown" dangerouslySetInnerHTML=${{ __html: renderMarkdown(value) }}></div>`
+                                        : (value ?? 'N/A')}</dd>
                                 `)}
                             </dl>
                         </div>
@@ -229,7 +231,9 @@
                             <dl>
                                 ${Object.entries(task.additional).map(([key, value]) => html`
                                     <dt>${key}</dt>
-                                    <dd>${value ?? 'N/A'}</dd>
+                                    <dd>${typeof value === 'string'
+                                        ? html`<div class="content-markdown" dangerouslySetInnerHTML=${{ __html: renderMarkdown(value) }}></div>`
+                                        : (value ?? 'N/A')}</dd>
                                 `)}
                             </dl>
                         </div>

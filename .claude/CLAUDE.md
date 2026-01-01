@@ -1,1 +1,1 @@
-You MUST adhere to @CONSTITUTION.md in the project root.
+You MUST adhere to @CONSTITUTION.md in the project root. Your very first task MUST BE to read it.
