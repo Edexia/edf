@@ -128,9 +128,15 @@ The submission_id must match the folder name and must consist only of alphanumer
 
 The grade is an integer representing the ground truth grade. It must be in the range [0, max_grade].
 
-The grade_distributions object contains three probability distributions: optimistic, expected, and pessimistic. Each distribution is an array of probabilities where the array length equals max_grade + 1. The value at index i represents the probability of receiving grade i. All probabilities must be non-negative and must sum to 1.0 (with allowance for floating-point tolerance). Optimistic means we have faith in the grader, i.e. we assume low variance. Conversely, pessimistic means a worst case scenario.
+The grade_distributions object contains three probability distributions: optimistic, expected, and pessimistic. Each distribution is an array of probabilities where the array length equals max_grade + 1. The value at index i represents the probability of receiving grade i. All probabilities must be non-negative and must sum to 1.0 (with allowance for floating-point tolerance).
 
-The three distributions represent different grading assumptions. The optimistic distribution assumes favorable interpretation of ambiguous responses. The expected distribution represents the most likely grading outcome. The pessimistic distribution assumes strict interpretation of ambiguous responses.
+The three distributions model different levels of noise in human marker behavior:
+
+- **optimistic**: Low-noise scenario. Assumes markers grade consistently with minimal variation. Use a tighter distribution (lower spread/variance).
+- **expected**: Medium-noise scenario. The baseline prediction representing typical marker variability.
+- **pessimistic**: High-noise scenario. Assumes markers exhibit significant inconsistency. Use a wider distribution (higher spread/variance) that accounts for greater uncertainty.
+
+These modes do NOT represent systematic biases (e.g., "harsh" vs "lenient" graders). They model the degree of randomness/noise in the grading process. A low-noise grader produces predictable grades; a high-noise grader's grades vary unpredictably even for similar work.
 
 ### 4.6 submissions/{id}/additional_data.json
 

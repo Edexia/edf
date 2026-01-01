@@ -208,19 +208,41 @@ edf.save("scanned_exams.edf")
 
 ### Generate grade distributions
 
+The three variance modes model **noise levels in human marker behavior**, not systematic biases:
+
+- **optimistic**: Low noise — markers grade consistently. Use a tighter distribution.
+- **expected**: Medium noise — typical marker variability.
+- **pessimistic**: High noise — markers are inconsistent. Use a wider distribution.
+
+**Important:** Avoid using naive standard deviations (e.g., `std=1.5` for all submissions). Real marker noise varies based on factors like rubric clarity, question ambiguity, and submission quality. Consider modeling these factors rather than using fixed spreads.
+
+If you need a simple helper for prototyping, use spread-based generation:
+
 ```python
 import math
 
-def gaussian_distribution(peak: int, max_grade: int, sigma: float = 2.0) -> list[float]:
-    """Generate a Gaussian distribution centered on peak."""
-    dist = [math.exp(-((i - peak) ** 2) / (2 * sigma ** 2)) for i in range(max_grade + 1)]
+def generate_distribution(peak: int, max_grade: int, spread: float = 0.15) -> list[float]:
+    """
+    Generate a bell-curve distribution centered on peak.
+
+    The spread parameter controls distribution width as a fraction of max_grade.
+    Lower spread = tighter distribution (low noise), higher spread = wider (high noise).
+
+    Note: For production use, consider deriving spread from actual marker behavior
+    data rather than using fixed values.
+    """
+    dist = []
+    for i in range(max_grade + 1):
+        diff = abs(i - peak)
+        prob = math.exp(-(diff ** 2) / (2 * (spread * max_grade) ** 2))
+        dist.append(prob)
     total = sum(dist)
     return [p / total for p in dist]
 
-# For a grade of 15/20
-optimistic = gaussian_distribution(16, 20, sigma=1.5)   # Slightly higher, tighter
-expected = gaussian_distribution(15, 20, sigma=2.0)     # Centered on grade
-pessimistic = gaussian_distribution(14, 20, sigma=2.5)  # Slightly lower, wider
+# Example for a grade of 15/20
+optimistic = generate_distribution(15, 20, spread=0.10)   # Low noise (tight)
+expected = generate_distribution(15, 20, spread=0.15)     # Medium noise
+pessimistic = generate_distribution(15, 20, spread=0.20)  # High noise (wide)
 ```
 
 ---
@@ -415,20 +437,22 @@ Returns list of JPEG bytes, or `None` if not images format.
 
 ### GradeDistributions
 
-Container for the three probability distributions.
+Container for the three probability distributions representing different marker noise levels.
 
 #### Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `optimistic` | `list[float]` | Favorable interpretation |
-| `expected` | `list[float]` | Most likely outcome |
-| `pessimistic` | `list[float]` | Strict interpretation |
+| `optimistic` | `list[float]` | Low-noise scenario (tight distribution) |
+| `expected` | `list[float]` | Medium-noise scenario (baseline) |
+| `pessimistic` | `list[float]` | High-noise scenario (wide distribution) |
 
 Each distribution:
 - Has length `max_grade + 1`
 - Contains non-negative values
 - Sums to 1.0 (within 0.0001 tolerance)
+
+Note: These modes model noise/variance in marker behavior, not systematic biases.
 
 ---
 

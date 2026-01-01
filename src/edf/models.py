@@ -78,11 +78,11 @@ class TaskCore(BaseModel):
 
 
 class GradeDistributions(BaseModel):
-    """Three probability distributions for grade predictions."""
+    """Three probability distributions modeling different marker noise levels."""
 
-    optimistic: list[float] = Field(description="Favorable interpretation distribution")
-    expected: list[float] = Field(description="Most likely outcome distribution")
-    pessimistic: list[float] = Field(description="Strict interpretation distribution")
+    optimistic: list[float] = Field(description="Low-noise scenario (tight distribution)")
+    expected: list[float] = Field(description="Medium-noise scenario (baseline)")
+    pessimistic: list[float] = Field(description="High-noise scenario (wide distribution)")
 
     @field_validator("optimistic", "expected", "pessimistic")
     @classmethod

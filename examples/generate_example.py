@@ -11,7 +11,15 @@ from edf import EDF
 
 
 def generate_distribution(peak: int, max_grade: int, spread: float = 0.15) -> list[float]:
-    """Generate a bell-curve-ish distribution centered around a peak grade."""
+    """
+    Generate a bell-curve distribution centered around a peak grade.
+
+    The spread parameter controls distribution width as a fraction of max_grade.
+    Lower spread = tighter distribution (low noise), higher spread = wider (high noise).
+
+    Note: For production use, consider deriving spread from actual marker behavior
+    data rather than using fixed values. Avoid naive fixed standard deviations.
+    """
     dist = []
     for i in range(max_grade + 1):
         diff = abs(i - peak)
@@ -194,9 +202,14 @@ The path forward requires neither uncritical embrace nor reactionary rejection o
 
     for sub in submissions:
         grade = sub["grade"]
-        optimistic = generate_distribution(min(grade + 1, 20), 20, spread=0.12)
+        # Variance modes model marker noise levels, not systematic biases:
+        # - optimistic: low noise (tight distribution, spread=0.10)
+        # - expected: medium noise (baseline, spread=0.15)
+        # - pessimistic: high noise (wide distribution, spread=0.20)
+        # All centered on the same grade - only the spread differs.
+        optimistic = generate_distribution(grade, 20, spread=0.10)
         expected = generate_distribution(grade, 20, spread=0.15)
-        pessimistic = generate_distribution(max(grade - 1, 0), 20, spread=0.18)
+        pessimistic = generate_distribution(grade, 20, spread=0.20)
 
         edf.add_submission(
             submission_id=sub["id"],
