@@ -7,6 +7,7 @@ from zipfile import ZipFile
 
 from edf.validation import (
     validate_structure,
+    validate_submission_structure,
     validate_consistency,
     validate_submission_consistency,
     validate_additional_data,
@@ -138,6 +139,18 @@ class TestValidateStructure:
         errors = validate_structure(zf, manifest)
         assert not any("rubric" in e.lower() for e in errors)
 
+    def test_missing_prompt_when_declared(self):
+        """Missing prompt.md when has_prompt=true is caught."""
+        manifest = Manifest.model_validate(make_manifest(has_prompt=True))
+        files = {
+            "manifest.json": b"{}",
+            "task/core.json": b"{}",
+            "submissions/_index.json": b"{}",
+        }
+        zf = create_test_zip(files)
+        errors = validate_structure(zf, manifest)
+        assert any("prompt.md" in e for e in errors)
+
     def test_task_additional_data_required(self):
         """task/additional_data.json required when declared."""
         manifest = Manifest.model_validate(
@@ -164,6 +177,186 @@ class TestValidateStructure:
         zf = create_test_zip(files)
         errors = validate_structure(zf, manifest)
         assert any("exists but no" in e for e in errors)
+
+
+class TestValidateSubmissionStructure:
+    """Tests for validate_submission_structure function."""
+
+    def test_valid_submission_structure(self):
+        """Valid submission structure passes."""
+        manifest = Manifest.model_validate(make_manifest())
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/content.md": b"content",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert errors == []
+
+    def test_missing_submission_core(self):
+        """Missing core.json in submission is caught."""
+        manifest = Manifest.model_validate(make_manifest())
+        files = {
+            "submissions/test_sub/content.md": b"content",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("core.json" in e for e in errors)
+
+    def test_submission_additional_data_required(self):
+        """Missing additional_data.json when declared is caught."""
+        manifest = Manifest.model_validate(
+            make_manifest(additional_data={"task": [], "submission": ["student_name"]})
+        )
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/content.md": b"content",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("additional_data.json" in e for e in errors)
+
+    def test_submission_unexpected_additional_data(self):
+        """Unexpected additional_data.json is caught."""
+        manifest = Manifest.model_validate(make_manifest())
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/content.md": b"content",
+            "submissions/test_sub/additional_data.json": b"{}",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("exists but no" in e for e in errors)
+
+    def test_submission_no_content(self):
+        """Submission with no content is caught."""
+        manifest = Manifest.model_validate(make_manifest())
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("no content" in e for e in errors)
+
+    def test_submission_no_content_pdf_format(self):
+        """Submission with no content in PDF format is caught."""
+        manifest = Manifest.model_validate(make_manifest(content_format="pdf"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("no content" in e for e in errors)
+
+    def test_submission_no_content_images_format(self):
+        """Submission with no content in images format is caught."""
+        manifest = Manifest.model_validate(make_manifest(content_format="images"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("no content" in e for e in errors)
+
+    def test_submission_multiple_content_types(self):
+        """Submission with multiple content types is caught."""
+        manifest = Manifest.model_validate(make_manifest())
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/content.md": b"markdown",
+            "submissions/test_sub/content.pdf": b"pdf",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("multiple content types" in e for e in errors)
+
+    def test_submission_format_mismatch_expected_markdown_got_pdf(self):
+        """Content format mismatch: expected markdown, got pdf."""
+        manifest = Manifest.model_validate(make_manifest(content_format="markdown"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/content.pdf": b"pdf",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("expected markdown" in e for e in errors)
+
+    def test_submission_format_mismatch_expected_markdown_got_images(self):
+        """Content format mismatch: expected markdown, got images."""
+        manifest = Manifest.model_validate(make_manifest(content_format="markdown"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/pages/0.jpg": b"jpg",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("expected markdown" in e for e in errors)
+
+    def test_submission_format_mismatch_expected_pdf_got_markdown(self):
+        """Content format mismatch: expected pdf, got markdown."""
+        manifest = Manifest.model_validate(make_manifest(content_format="pdf"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/content.md": b"markdown",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("expected pdf" in e for e in errors)
+
+    def test_submission_format_mismatch_expected_pdf_got_images(self):
+        """Content format mismatch: expected pdf, got images."""
+        manifest = Manifest.model_validate(make_manifest(content_format="pdf"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/pages/0.jpg": b"jpg",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("expected pdf" in e for e in errors)
+
+    def test_submission_format_mismatch_expected_images_got_markdown(self):
+        """Content format mismatch: expected images, got markdown."""
+        manifest = Manifest.model_validate(make_manifest(content_format="images"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/content.md": b"markdown",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("expected images" in e for e in errors)
+
+    def test_submission_format_mismatch_expected_images_got_pdf(self):
+        """Content format mismatch: expected images, got pdf."""
+        manifest = Manifest.model_validate(make_manifest(content_format="images"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/content.pdf": b"pdf",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert any("expected images" in e for e in errors)
+
+    def test_valid_pdf_submission(self):
+        """Valid PDF submission passes."""
+        manifest = Manifest.model_validate(make_manifest(content_format="pdf"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/content.pdf": b"pdf content",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert errors == []
+
+    def test_valid_images_submission(self):
+        """Valid images submission passes."""
+        manifest = Manifest.model_validate(make_manifest(content_format="images"))
+        files = {
+            "submissions/test_sub/core.json": b"{}",
+            "submissions/test_sub/pages/0.jpg": b"jpg content",
+        }
+        zf = create_test_zip(files)
+        errors = validate_submission_structure(zf, manifest, ["test_sub"])
+        assert errors == []
 
 
 class TestValidateConsistency:
@@ -292,6 +485,128 @@ class TestValidateEDF:
         zf = create_test_zip(files)
         errors, warnings = validate_edf(zf)
         assert any("parse" in e.lower() or "manifest" in e.lower() for e in errors)
+
+    def test_structure_errors_stop_early(self):
+        """Structural errors stop validation early."""
+        manifest = make_manifest()
+        # Missing task/core.json - should fail structure check
+        files = {
+            "manifest.json": json.dumps(manifest).encode(),
+            "submissions/_index.json": b"{}",
+        }
+        zf = create_test_zip(files)
+        errors, warnings = validate_edf(zf)
+        assert any("task/core.json" in e for e in errors)
+
+    def test_invalid_task_core_json(self):
+        """Invalid task/core.json is caught."""
+        manifest = make_manifest()
+        files = {
+            "manifest.json": json.dumps(manifest).encode(),
+            "task/core.json": b"not valid json",
+            "submissions/_index.json": b"{}",
+        }
+        zf = create_test_zip(files)
+        errors, warnings = validate_edf(zf)
+        assert any("task/core.json" in e for e in errors)
+
+    def test_invalid_index_json(self):
+        """Invalid submissions/_index.json is caught."""
+        manifest = make_manifest()
+        task_core = make_task_core()
+        files = {
+            "manifest.json": json.dumps(manifest).encode(),
+            "task/core.json": json.dumps(task_core).encode(),
+            "submissions/_index.json": b"not valid json",
+        }
+        zf = create_test_zip(files)
+        errors, warnings = validate_edf(zf)
+        assert any("_index.json" in e for e in errors)
+
+    def test_invalid_task_additional_data_json(self):
+        """Invalid task/additional_data.json is caught."""
+        manifest = make_manifest(additional_data={"task": ["school_id"], "submission": []})
+        task_core = make_task_core()
+        index = {"submission_ids": []}
+        files = {
+            "manifest.json": json.dumps(manifest).encode(),
+            "task/core.json": json.dumps(task_core).encode(),
+            "task/additional_data.json": b"not valid json",
+            "submissions/_index.json": json.dumps(index).encode(),
+        }
+        zf = create_test_zip(files)
+        errors, warnings = validate_edf(zf)
+        assert any("additional_data.json" in e for e in errors)
+
+    def test_invalid_submission_core_json(self):
+        """Invalid submission core.json is caught."""
+        manifest = make_manifest()
+        task_core = make_task_core()
+        index = {"submission_ids": ["test_sub"]}
+        files = {
+            "manifest.json": json.dumps(manifest).encode(),
+            "task/core.json": json.dumps(task_core).encode(),
+            "submissions/_index.json": json.dumps(index).encode(),
+            "submissions/test_sub/core.json": b"not valid json",
+            "submissions/test_sub/content.md": b"Test content",
+        }
+        zf = create_test_zip(files)
+        errors, warnings = validate_edf(zf)
+        assert any("test_sub/core.json" in e for e in errors)
+
+    def test_invalid_submission_additional_data_json(self):
+        """Invalid submission additional_data.json is caught."""
+        manifest = make_manifest(additional_data={"task": [], "submission": ["student_name"]})
+        task_core = make_task_core()
+        sub_core = make_submission_core("test_sub")
+        index = {"submission_ids": ["test_sub"]}
+        files = {
+            "manifest.json": json.dumps(manifest).encode(),
+            "task/core.json": json.dumps(task_core).encode(),
+            "submissions/_index.json": json.dumps(index).encode(),
+            "submissions/test_sub/core.json": json.dumps(sub_core).encode(),
+            "submissions/test_sub/additional_data.json": b"not valid json",
+            "submissions/test_sub/content.md": b"Test content",
+        }
+        zf = create_test_zip(files)
+        errors, warnings = validate_edf(zf)
+        assert any("additional_data.json" in e for e in errors)
+
+    def test_valid_edf_with_task_additional_data(self):
+        """Valid EDF with task additional data passes."""
+        manifest = make_manifest(additional_data={"task": ["school_id"], "submission": []})
+        task_core = make_task_core()
+        sub_core = make_submission_core("test_sub")
+        index = {"submission_ids": ["test_sub"]}
+        files = {
+            "manifest.json": json.dumps(manifest).encode(),
+            "task/core.json": json.dumps(task_core).encode(),
+            "task/additional_data.json": json.dumps({"school_id": "TEST"}).encode(),
+            "submissions/_index.json": json.dumps(index).encode(),
+            "submissions/test_sub/core.json": json.dumps(sub_core).encode(),
+            "submissions/test_sub/content.md": b"Test content",
+        }
+        zf = create_test_zip(files)
+        errors, warnings = validate_edf(zf)
+        assert errors == []
+
+    def test_valid_edf_with_submission_additional_data(self):
+        """Valid EDF with submission additional data passes."""
+        manifest = make_manifest(additional_data={"task": [], "submission": ["student_name"]})
+        task_core = make_task_core()
+        sub_core = make_submission_core("test_sub")
+        index = {"submission_ids": ["test_sub"]}
+        files = {
+            "manifest.json": json.dumps(manifest).encode(),
+            "task/core.json": json.dumps(task_core).encode(),
+            "submissions/_index.json": json.dumps(index).encode(),
+            "submissions/test_sub/core.json": json.dumps(sub_core).encode(),
+            "submissions/test_sub/additional_data.json": json.dumps({"student_name": "Test"}).encode(),
+            "submissions/test_sub/content.md": b"Test content",
+        }
+        zf = create_test_zip(files)
+        errors, warnings = validate_edf(zf)
+        assert errors == []
 
 
 class TestRegisteredAttributes:

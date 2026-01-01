@@ -133,7 +133,7 @@ def main() -> int:
         return cmd_validate(args)
     elif args.command == "view":
         return cmd_view(args)
-    else:
+    else:  # pragma: no cover
         parser.print_help()
         return 1
 

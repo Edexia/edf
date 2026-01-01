@@ -127,6 +127,90 @@ class TestCmdView:
             assert call_kwargs[1]["open_browser"] is False
 
 
+class TestCmdInfoEdgeCases:
+    """Edge case tests for the info command."""
+
+    def test_info_without_task_attrs(self, tmp_path, capsys):
+        """Info command when EDF has no task additional data."""
+        from edf import EDF
+        from tests.conftest import make_distribution
+
+        edf = EDF(max_grade=10)
+        # No set_task_data() call - empty task_data
+        edf.add_submission(
+            submission_id="student1",
+            grade=5,
+            optimistic=make_distribution(6, 10),
+            expected=make_distribution(5, 10),
+            pessimistic=make_distribution(4, 10),
+            content="Test content",
+        )
+        path = tmp_path / "no_task_attrs.edf"
+        edf.save(path)
+
+        args = MockArgs(file=str(path))
+        result = cmd_info(args)
+        assert result == 0
+
+        captured = capsys.readouterr()
+        assert "Task Attrs:" not in captured.out
+
+    def test_info_without_submission_attrs(self, tmp_path, capsys):
+        """Info command when EDF has no submission additional data."""
+        from edf import EDF
+        from tests.conftest import make_distribution
+
+        edf = EDF(max_grade=10)
+        edf.set_task_data(school_id="TEST")
+        edf.add_submission(
+            submission_id="student1",
+            grade=5,
+            optimistic=make_distribution(6, 10),
+            expected=make_distribution(5, 10),
+            pessimistic=make_distribution(4, 10),
+            content="Test content",
+            # No additional submission attributes
+        )
+        path = tmp_path / "no_sub_attrs.edf"
+        edf.save(path)
+
+        args = MockArgs(file=str(path))
+        result = cmd_info(args)
+        assert result == 0
+
+        captured = capsys.readouterr()
+        assert "Sub Attrs:" not in captured.out
+        assert "Task Attrs:" in captured.out
+
+    def test_info_corrupt_file(self, tmp_path, capsys):
+        """Info command with a corrupt/unreadable EDF file."""
+        corrupt_path = tmp_path / "corrupt.edf"
+        corrupt_path.write_bytes(b"not a zip file")
+
+        args = MockArgs(file=str(corrupt_path))
+        result = cmd_info(args)
+        assert result == 1
+
+        captured = capsys.readouterr()
+        assert "Error" in captured.err
+
+
+class TestCmdValidateEdgeCases:
+    """Edge case tests for the validate command."""
+
+    def test_validate_corrupt_file(self, tmp_path, capsys):
+        """Validate command with corrupt file (non-EDFValidationError)."""
+        corrupt_path = tmp_path / "corrupt.edf"
+        corrupt_path.write_bytes(b"not a zip file")
+
+        args = MockArgs(file=str(corrupt_path))
+        result = cmd_validate(args)
+        assert result == 1
+
+        captured = capsys.readouterr()
+        assert "Error:" in captured.err
+
+
 class TestMainEntrypoint:
     """Tests for main() entrypoint."""
 

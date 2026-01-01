@@ -317,6 +317,19 @@ class TestEDFSubmissions:
                 content=b"pdf bytes",
             )
 
+    def test_add_submission_invalid_content_type(self, uniform_distribution):
+        """Reject invalid content types (not str, bytes, or list[bytes])."""
+        edf = EDF(max_grade=10)
+        with pytest.raises(ValueError, match="content must be str"):
+            edf.add_submission(
+                submission_id="test",
+                grade=5,
+                optimistic=uniform_distribution,
+                expected=uniform_distribution,
+                pessimistic=uniform_distribution,
+                content=12345,  # Invalid content type
+            )
+
     def test_get_submission(self, simple_edf):
         """Get submission by ID."""
         sub = simple_edf.get_submission("test_student")
@@ -444,6 +457,22 @@ class TestEDFSaveAndOpen:
 
         with EDF.open(tmp_edf_path) as loaded:
             assert loaded.edf_version == "1.0.0"
+
+
+class TestEDFClose:
+    """Tests for EDF close behavior."""
+
+    def test_close_on_new_edf(self):
+        """Closing a newly created EDF (not opened from file) works."""
+        edf = EDF(max_grade=10)
+        edf.close()  # Should not raise
+        edf.close()  # Should be safe to call multiple times
+
+    def test_close_after_open(self, saved_edf):
+        """Closing an opened EDF works."""
+        edf = EDF.open(saved_edf)
+        edf.close()
+        edf.close()  # Should be safe to call multiple times
 
 
 class TestEDFModification:

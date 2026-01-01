@@ -146,6 +146,15 @@ class TestTaskCore:
                 max_grade=-1,
             )
 
+    def test_invalid_task_id_rejected(self):
+        """TaskCore rejects invalid task_id."""
+        with pytest.raises(ValidationError, match="task_id"):
+            TaskCore(
+                task_id="not-a-valid-uuid",
+                version=1,
+                max_grade=20,
+            )
+
 
 class TestGradeDistributions:
     """Tests for GradeDistributions model."""
