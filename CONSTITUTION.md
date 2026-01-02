@@ -138,7 +138,7 @@ This project uses [uv](https://docs.astral.sh/uv/) for Python package management
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Clone and setup
-git clone https://github.com/10decikelvin/edf
+git clone https://github.com/Edexia/edf
 cd edf
 uv sync
 ```

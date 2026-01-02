@@ -16,10 +16,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/10decikelvin/edf"
-Repository = "https://github.com/10decikelvin/edf"
-"SDK Reference" = "https://github.com/10decikelvin/edf/blob/main/DOCS/SDK.md"
-"File Specification" = "https://github.com/10decikelvin/edf/blob/main/DOCS/SPEC.md"
+Homepage = "https://github.com/Edexia/edf"
+Repository = "https://github.com/Edexia/edf"
+"SDK Reference" = "https://github.com/Edexia/edf/blob/main/DOCS/SDK.md"
+"File Specification" = "https://github.com/Edexia/edf/blob/main/DOCS/SPEC.md"
 
 [project.scripts]
 edf = "edf.cli:main"

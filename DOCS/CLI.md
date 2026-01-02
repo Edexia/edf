@@ -8,22 +8,22 @@ This document covers the CLI tool for working with EDF files. For the Python SDK
 
 ```bash
 # Install globally as a tool
-uv tool install git+https://github.com/10decikelvin/edf
+uv tool install git+https://github.com/Edexia/edf
 
 # Or run directly without installing
-uvx --from git+https://github.com/10decikelvin/edf edf <command>
+uvx --from git+https://github.com/Edexia/edf edf <command>
 ```
 
 ### Using pip
 
 ```bash
-pip install git+https://github.com/10decikelvin/edf
+pip install git+https://github.com/Edexia/edf
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/10decikelvin/edf
+git clone https://github.com/Edexia/edf
 cd edf
 uv sync
 uv run edf <command>

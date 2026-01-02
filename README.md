@@ -9,7 +9,7 @@ A Python SDK and tools for working with EDF files. An EDF file is a ZIP archive 
 Install the `edf` command globally:
 
 ```bash
-uv tool install git+https://github.com/10decikelvin/edf
+uv tool install git+https://github.com/Edexia/edf
 ```
 
 Then use it directly:
@@ -25,13 +25,13 @@ edf info assignment.edf
 Add to your project:
 
 ```bash
-uv add git+https://github.com/10decikelvin/edf
+uv add git+https://github.com/Edexia/edf
 ```
 
 ### For development
 
 ```bash
-git clone https://github.com/10decikelvin/edf
+git clone https://github.com/Edexia/edf
 cd edf
 uv sync
 ```
@@ -113,7 +113,7 @@ edf view assignment.edf -p 9000  # Custom port
 Or run without installing using `uvx`:
 
 ```bash
-uvx --from git+https://github.com/10decikelvin/edf edf view assignment.edf
+uvx --from git+https://github.com/Edexia/edf edf view assignment.edf
 ```
 
 ## Web Viewer
