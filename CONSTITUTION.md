@@ -55,11 +55,20 @@ uv run pytest
 
 Spawn parallel agents to check if documentation needs updates:
 
-| File | Update when... |
-|------|----------------|
-| `DOCS/CLI.md` | CLI commands, options, or behavior change |
-| `DOCS/SDK.md` | Public API, classes, methods, or parameters change |
-| `DOCS/SPEC.md` | File format, validation rules, or data structures change |
+| Location | Update when... |
+|----------|----------------|
+| `DOCS/CLI/{command}.md` | CLI command options or behavior change |
+| `DOCS/SDK/{class}.md` | Public API class, methods, or parameters change |
+| `DOCS/SPEC/*.md` | File format, validation rules, or data structures change |
+| `DOCS/COOKBOOK.md` | Common workflows change |
+
+**Documentation maintenance rules:**
+- Each CLI command has its own file in `DOCS/CLI/`
+- Each SDK class has its own file in `DOCS/SDK/`
+- Files should be <150 lines; split if larger
+- Use relative paths for cross-references
+- New features require corresponding doc additions
+- Docs must be readable via raw.githubusercontent.com
 
 If any doc is outdated, update it before proceeding.
 
@@ -195,12 +204,14 @@ tests/
 
 ### Documentation
 
-| File | Purpose |
-|------|---------|
-| `README.md` | Installation and quick start |
-| `DOCS/CLI.md` | Command line interface reference |
-| `DOCS/SDK.md` | Complete SDK reference |
-| `DOCS/SPEC.md` | EDF file format specification |
+| Location | Purpose |
+|----------|---------|
+| `README.md` | Agent entrypoint with navigation |
+| `DOCS/OVERVIEW.md` | Concepts and architecture |
+| `DOCS/COOKBOOK.md` | Quick recipes for common tasks |
+| `DOCS/CLI/` | CLI command reference (one file per command) |
+| `DOCS/SDK/` | SDK reference (one file per class) |
+| `DOCS/SPEC/` | File format specification |
 | `CONSTITUTION.md` | This document |
 
 ---
