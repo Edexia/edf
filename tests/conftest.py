@@ -199,6 +199,26 @@ def unzipped_images_edf_dir(tmp_path):
 
 
 @pytest.fixture
+def saved_pdf_edf(unzipped_pdf_edf_dir, tmp_path):
+    """Create and save a PDF EDF, returning the path."""
+    from edf import EDF
+    edf = EDF.from_directory(unzipped_pdf_edf_dir, dangerously_load_unzipped_edf=True)
+    path = tmp_path / "pdf.edf"
+    edf.save(path)
+    return path
+
+
+@pytest.fixture
+def saved_images_edf(unzipped_images_edf_dir, tmp_path):
+    """Create and save an images EDF, returning the path."""
+    from edf import EDF
+    edf = EDF.from_directory(unzipped_images_edf_dir, dangerously_load_unzipped_edf=True)
+    path = tmp_path / "images.edf"
+    edf.save(path)
+    return path
+
+
+@pytest.fixture
 def unzipped_edf_missing_files(tmp_path):
     """Create an unzipped EDF with manifest declaring files that don't exist."""
     import json

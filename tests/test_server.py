@@ -1,11 +1,14 @@
 """Tests for the viewer server module."""
 
+import base64
 import io
+import json
 import socket
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock, PropertyMock
 
+from edf import EDF
 from viewer.server import find_available_port, run_viewer, RangeRequestHandler
 
 
@@ -57,7 +60,7 @@ class TestRunViewer:
             nonlocal callback_port
             callback_port = port
 
-        with patch("viewer.server.HTTPServer") as mock_server_class:
+        with patch("viewer.server.ThreadingHTTPServer") as mock_server_class:
             mock_server = MagicMock()
             mock_server.serve_forever.side_effect = KeyboardInterrupt()
             mock_server_class.return_value = mock_server
@@ -69,7 +72,7 @@ class TestRunViewer:
 
     def test_on_ready_not_called_when_none(self, saved_edf):
         """Should not error when on_ready is None."""
-        with patch("viewer.server.HTTPServer") as mock_server_class:
+        with patch("viewer.server.ThreadingHTTPServer") as mock_server_class:
             mock_server = MagicMock()
             mock_server.serve_forever.side_effect = KeyboardInterrupt()
             mock_server_class.return_value = mock_server
@@ -83,7 +86,7 @@ class TestRunViewer:
 
     def test_returns_actual_port(self, saved_edf):
         """Should return the actual port used."""
-        with patch("viewer.server.HTTPServer") as mock_server_class:
+        with patch("viewer.server.ThreadingHTTPServer") as mock_server_class:
             mock_server = MagicMock()
             mock_server.serve_forever.side_effect = KeyboardInterrupt()
             mock_server_class.return_value = mock_server
@@ -94,7 +97,7 @@ class TestRunViewer:
 
     def test_opens_browser_when_requested(self, saved_edf):
         """Should open browser when open_browser=True."""
-        with patch("viewer.server.HTTPServer") as mock_server_class:
+        with patch("viewer.server.ThreadingHTTPServer") as mock_server_class:
             mock_server = MagicMock()
             mock_server.serve_forever.side_effect = KeyboardInterrupt()
             mock_server_class.return_value = mock_server
@@ -106,7 +109,7 @@ class TestRunViewer:
 
     def test_no_browser_when_disabled(self, saved_edf):
         """Should not open browser when open_browser=False."""
-        with patch("viewer.server.HTTPServer") as mock_server_class:
+        with patch("viewer.server.ThreadingHTTPServer") as mock_server_class:
             mock_server = MagicMock()
             mock_server.serve_forever.side_effect = KeyboardInterrupt()
             mock_server_class.return_value = mock_server
@@ -162,7 +165,7 @@ class TestRunViewer:
 
     def test_server_close_called_on_interrupt(self, saved_edf):
         """Server should be closed after KeyboardInterrupt."""
-        with patch("viewer.server.HTTPServer") as mock_server_class:
+        with patch("viewer.server.ThreadingHTTPServer") as mock_server_class:
             mock_server = MagicMock()
             mock_server.serve_forever.side_effect = KeyboardInterrupt()
             mock_server_class.return_value = mock_server
@@ -498,3 +501,289 @@ class TestRangeRequestHandler:
             # Check that directory was NOT passed
             call_kwargs = mock_super_init.call_args[1]
             assert "directory" not in call_kwargs
+
+
+class TestAPIEndpoints:
+    """Tests for REST API endpoints."""
+
+    def _create_handler_with_edf(self, edf_path, path="/", headers=None):
+        """Create a mock handler with an EDF instance loaded."""
+        edf = EDF.open(edf_path)
+
+        class TestHandler(RangeRequestHandler):
+            pass
+
+        TestHandler.edf_file_path = edf_path
+        TestHandler.static_dir = None
+        TestHandler.edf_instance = edf
+
+        mock_request = MagicMock()
+        mock_request.makefile.return_value = io.BytesIO()
+        mock_client_address = ("127.0.0.1", 12345)
+        mock_server = MagicMock()
+
+        with patch.object(RangeRequestHandler, "__init__", lambda self, *args, **kwargs: None):
+            handler = TestHandler(mock_request, mock_client_address, mock_server)
+
+        handler.path = path
+        handler.headers = headers or {}
+        handler.wfile = io.BytesIO()
+        handler.requestline = f"GET {path} HTTP/1.1"
+        handler.request_version = "HTTP/1.1"
+        handler.command = "GET"
+
+        handler.send_response = MagicMock()
+        handler.send_header = MagicMock()
+        handler.end_headers = MagicMock()
+        handler.send_error = MagicMock()
+        handler.copyfile = MagicMock()
+
+        return handler
+
+    def _create_handler_without_edf(self, path="/"):
+        """Create a mock handler without an EDF instance."""
+        class TestHandler(RangeRequestHandler):
+            pass
+
+        TestHandler.edf_file_path = None
+        TestHandler.static_dir = None
+        TestHandler.edf_instance = None
+
+        mock_request = MagicMock()
+        mock_request.makefile.return_value = io.BytesIO()
+        mock_client_address = ("127.0.0.1", 12345)
+        mock_server = MagicMock()
+
+        with patch.object(RangeRequestHandler, "__init__", lambda self, *args, **kwargs: None):
+            handler = TestHandler(mock_request, mock_client_address, mock_server)
+
+        handler.path = path
+        handler.headers = {}
+        handler.wfile = io.BytesIO()
+        handler.requestline = f"GET {path} HTTP/1.1"
+        handler.request_version = "HTTP/1.1"
+        handler.command = "GET"
+
+        handler.send_response = MagicMock()
+        handler.send_header = MagicMock()
+        handler.end_headers = MagicMock()
+        handler.send_error = MagicMock()
+
+        return handler
+
+    # Tests for /api/manifest endpoint
+
+    def test_api_manifest_returns_json(self, saved_edf):
+        """GET /api/manifest returns manifest, task, rubric, prompt."""
+        handler = self._create_handler_with_edf(saved_edf, path="/api/manifest")
+        handler.do_GET()
+
+        handler.send_response.assert_called_with(200)
+        handler.send_header.assert_any_call("Content-Type", "application/json")
+        handler.send_header.assert_any_call("Access-Control-Allow-Origin", "*")
+
+        # Check the JSON response
+        response_body = handler.wfile.getvalue().decode("utf-8")
+        data = json.loads(response_body)
+
+        assert "manifest" in data
+        assert "task" in data
+        assert "rubric" in data
+        assert "prompt" in data
+
+        # Check manifest fields
+        assert "task_id" in data["manifest"]
+        assert "edf_version" in data["manifest"]
+        assert "content_format" in data["manifest"]
+        assert "submission_count" in data["manifest"]
+        assert data["manifest"]["submission_count"] == 3
+
+        # Check task fields
+        assert "max_grade" in data["task"]
+        assert data["task"]["max_grade"] == 20
+
+    def test_api_manifest_without_edf_returns_500(self):
+        """GET /api/manifest without EDF loaded returns 500."""
+        handler = self._create_handler_without_edf(path="/api/manifest")
+        handler.do_GET()
+
+        handler.send_error.assert_called_with(500, "EDF not loaded")
+
+    # Tests for /api/submissions endpoint
+
+    def test_api_submissions_returns_list(self, saved_edf):
+        """GET /api/submissions returns submission list without content."""
+        handler = self._create_handler_with_edf(saved_edf, path="/api/submissions")
+        handler.do_GET()
+
+        handler.send_response.assert_called_with(200)
+        handler.send_header.assert_any_call("Content-Type", "application/json")
+
+        response_body = handler.wfile.getvalue().decode("utf-8")
+        data = json.loads(response_body)
+
+        assert "submissions" in data
+        assert len(data["submissions"]) == 3
+
+        # Check submission structure
+        sub = data["submissions"][0]
+        assert "id" in sub
+        assert "grade" in sub
+        assert "distributions" in sub
+        assert "additional" in sub
+
+        # Check distributions structure
+        assert "optimistic" in sub["distributions"]
+        assert "expected" in sub["distributions"]
+        assert "pessimistic" in sub["distributions"]
+
+        # Verify content is NOT included
+        assert "content" not in sub
+
+    def test_api_submissions_without_edf_returns_500(self):
+        """GET /api/submissions without EDF loaded returns 500."""
+        handler = self._create_handler_without_edf(path="/api/submissions")
+        handler.do_GET()
+
+        handler.send_error.assert_called_with(500, "EDF not loaded")
+
+    # Tests for /api/submissions/{id}/content endpoint
+
+    def test_api_submission_content_markdown(self, saved_edf):
+        """GET /api/submissions/{id}/content returns markdown content."""
+        handler = self._create_handler_with_edf(
+            saved_edf, path="/api/submissions/student_alice/content"
+        )
+        handler.do_GET()
+
+        handler.send_response.assert_called_with(200)
+        handler.send_header.assert_any_call("Content-Type", "application/json")
+
+        response_body = handler.wfile.getvalue().decode("utf-8")
+        data = json.loads(response_body)
+
+        assert data["format"] == "markdown"
+        assert "content" in data
+        assert "alice" in data["content"].lower()
+
+    def test_api_submission_content_pdf(self, saved_pdf_edf):
+        """GET /api/submissions/{id}/content returns PDF binary."""
+        handler = self._create_handler_with_edf(
+            saved_pdf_edf, path="/api/submissions/sub1/content"
+        )
+        handler.do_GET()
+
+        handler.send_response.assert_called_with(200)
+        handler.send_header.assert_any_call("Content-Type", "application/pdf")
+        handler.send_header.assert_any_call("Access-Control-Allow-Origin", "*")
+
+        # Check that PDF bytes were written
+        response_body = handler.wfile.getvalue()
+        assert b"PDF" in response_body
+
+    def test_api_submission_content_images(self, saved_images_edf):
+        """GET /api/submissions/{id}/content returns base64 images."""
+        handler = self._create_handler_with_edf(
+            saved_images_edf, path="/api/submissions/sub1/content"
+        )
+        handler.do_GET()
+
+        handler.send_response.assert_called_with(200)
+        handler.send_header.assert_any_call("Content-Type", "application/json")
+
+        response_body = handler.wfile.getvalue().decode("utf-8")
+        data = json.loads(response_body)
+
+        assert data["format"] == "images"
+        assert "pages" in data
+        assert len(data["pages"]) == 2
+
+        # Verify base64 encoding
+        decoded = base64.b64decode(data["pages"][0])
+        assert decoded == b"fake jpg 0"
+
+    def test_api_submission_content_not_found(self, saved_edf):
+        """GET /api/submissions/{invalid}/content returns 404."""
+        handler = self._create_handler_with_edf(
+            saved_edf, path="/api/submissions/nonexistent_student/content"
+        )
+        handler.do_GET()
+
+        handler.send_error.assert_called()
+        call_args = handler.send_error.call_args
+        assert call_args[0][0] == 404
+        assert "nonexistent_student" in call_args[0][1]
+
+    def test_api_submission_content_without_edf_returns_500(self):
+        """GET /api/submissions/{id}/content without EDF returns 500."""
+        handler = self._create_handler_without_edf(
+            path="/api/submissions/test/content"
+        )
+        handler.do_GET()
+
+        handler.send_error.assert_called_with(500, "EDF not loaded")
+
+    # Tests for routing
+
+    def test_do_get_routes_api_manifest(self, saved_edf):
+        """GET /api/manifest should route to serve_api_manifest."""
+        handler = self._create_handler_with_edf(saved_edf, path="/api/manifest")
+        handler.serve_api_manifest = MagicMock()
+
+        handler.do_GET()
+
+        handler.serve_api_manifest.assert_called_once()
+
+    def test_do_get_routes_api_submissions(self, saved_edf):
+        """GET /api/submissions should route to serve_api_submissions."""
+        handler = self._create_handler_with_edf(saved_edf, path="/api/submissions")
+        handler.serve_api_submissions = MagicMock()
+
+        handler.do_GET()
+
+        handler.serve_api_submissions.assert_called_once()
+
+    def test_do_get_routes_api_submission_content(self, saved_edf):
+        """GET /api/submissions/{id}/content should route to serve_api_submission_content."""
+        handler = self._create_handler_with_edf(
+            saved_edf, path="/api/submissions/test_id/content"
+        )
+        handler.serve_api_submission_content = MagicMock()
+
+        handler.do_GET()
+
+        handler.serve_api_submission_content.assert_called_once_with("test_id")
+
+    def test_do_get_invalid_api_path_falls_through(self, saved_edf):
+        """GET /api/submissions/foo (without /content) should fall through to default."""
+        handler = self._create_handler_with_edf(
+            saved_edf, path="/api/submissions/foo"
+        )
+
+        with patch.object(RangeRequestHandler.__bases__[0], "do_GET") as mock_super:
+            handler.do_GET()
+            mock_super.assert_called_once()
+
+    # Tests for _send_json helper
+
+    def test_send_json_helper(self, saved_edf):
+        """_send_json sends correct headers and body."""
+        handler = self._create_handler_with_edf(saved_edf)
+
+        test_data = {"key": "value", "number": 42}
+        handler._send_json(test_data)
+
+        handler.send_response.assert_called_with(200)
+        handler.send_header.assert_any_call("Content-Type", "application/json")
+        handler.send_header.assert_any_call("Access-Control-Allow-Origin", "*")
+
+        response_body = handler.wfile.getvalue().decode("utf-8")
+        assert json.loads(response_body) == test_data
+
+    def test_send_json_custom_status(self, saved_edf):
+        """_send_json can send custom status codes."""
+        handler = self._create_handler_with_edf(saved_edf)
+
+        handler._send_json({"error": "test"}, status=400)
+
+        handler.send_response.assert_called_with(400)
