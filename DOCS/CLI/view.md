@@ -44,7 +44,8 @@ Tries up to 100 consecutive ports.
 
 - Browse all submissions
 - View content (markdown, PDF, or images)
-- Visualize grade distributions
+- Visualize grade distributions per submission
+- Interactive grade histogram with adjustable bin size
 - Inspect metadata and additional data
 - Range request support for large files
 

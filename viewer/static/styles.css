@@ -342,6 +342,62 @@ main {
     border-radius: 2px;
 }
 
+/* Grade Histogram */
+.histogram-container {
+    margin: 1.5rem 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.histogram-container h3 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-muted);
+}
+
+.bin-control {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.bin-control label {
+    min-width: 90px;
+}
+
+.bin-control input[type="range"] {
+    flex: 1;
+    min-width: 120px;
+    max-width: 250px;
+    cursor: pointer;
+}
+
+.bin-control .bin-info {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.grade-histogram {
+    background: #fafafa;
+    border-radius: 4px;
+    padding: 1rem;
+}
+
+.grade-histogram svg {
+    display: block;
+    max-width: 100%;
+}
+
+.histogram-bar {
+    transition: opacity 0.15s;
+}
+
+.histogram-bar:hover {
+    opacity: 0.8;
+}
+
 /* Additional Data */
 .additional-data {
     margin-top: 1.5rem;

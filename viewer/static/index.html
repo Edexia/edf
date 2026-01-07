@@ -38,6 +38,27 @@
             return new Date(ms).toLocaleString();
         }
 
+        // Compute histogram bins from submissions
+        function computeBins(submissions, maxGrade, binSize) {
+            const numBins = Math.ceil((maxGrade + 1) / binSize);
+            const bins = [];
+            for (let i = 0; i < numBins; i++) {
+                const start = i * binSize;
+                const end = Math.min(start + binSize - 1, maxGrade);
+                bins.push({
+                    start,
+                    end,
+                    count: 0,
+                    label: binSize === 1 ? `${start}` : `${start}-${end}`
+                });
+            }
+            for (const sub of submissions) {
+                const idx = Math.floor(sub.grade / binSize);
+                if (idx < numBins) bins[idx].count++;
+            }
+            return bins;
+        }
+
         // Grade Distribution Chart Component
         function GradeChart({ distributions, maxGrade, actualGrade }) {
             const width = 400;
@@ -108,6 +129,118 @@
                         <span class="legend-item"><span class="legend-color" style="background: #FF5722"></span> Pessimistic</span>
                         <span class="legend-item"><span class="legend-color" style="background: #000"></span> Actual: ${actualGrade}</span>
                     </div>
+                </div>
+            `;
+        }
+
+        // Grade Histogram Component
+        function GradeHistogram({ submissions, maxGrade, binSize }) {
+            const width = 400;
+            const height = 180;
+            const padding = { top: 20, right: 20, bottom: 40, left: 45 };
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+
+            const bins = useMemo(
+                () => computeBins(submissions, maxGrade, binSize),
+                [submissions, maxGrade, binSize]
+            );
+
+            const maxCount = Math.max(...bins.map(b => b.count), 1);
+            const barWidth = Math.max((chartWidth / bins.length) - 2, 1);
+            const barGap = 1;
+
+            const scaleY = (count) => chartHeight - (count / maxCount) * chartHeight;
+            const scaleX = (index) => index * (chartWidth / bins.length) + barGap;
+
+            // Determine which labels to show to avoid crowding
+            const labelInterval = Math.ceil(bins.length / 10);
+
+            return html`
+                <div class="grade-histogram">
+                    <svg width="${width}" height="${height}">
+                        <g transform="translate(${padding.left}, ${padding.top})">
+                            <!-- Y axis -->
+                            <line x1="0" y1="0" x2="0" y2="${chartHeight}" stroke="#ccc" />
+                            <!-- X axis -->
+                            <line x1="0" y1="${chartHeight}" x2="${chartWidth}" y2="${chartHeight}" stroke="#ccc" />
+
+                            <!-- Y axis label -->
+                            <text x="-30" y="${chartHeight / 2}" text-anchor="middle"
+                                  transform="rotate(-90, -30, ${chartHeight / 2})" font-size="11" fill="#666">
+                                Count
+                            </text>
+
+                            <!-- Y axis ticks -->
+                            ${[0, 0.5, 1].map(pct => html`
+                                <text x="-5" y="${scaleY(pct * maxCount) + 4}"
+                                      text-anchor="end" font-size="10" fill="#666">
+                                    ${Math.round(pct * maxCount)}
+                                </text>
+                            `)}
+
+                            <!-- Bars -->
+                            ${bins.map((bin, i) => html`
+                                <rect
+                                    x="${scaleX(i)}"
+                                    y="${scaleY(bin.count)}"
+                                    width="${barWidth}"
+                                    height="${chartHeight - scaleY(bin.count)}"
+                                    fill="#2196F3"
+                                    class="histogram-bar"
+                                >
+                                    <title>${bin.label}: ${bin.count} submission${bin.count !== 1 ? 's' : ''}</title>
+                                </rect>
+                            `)}
+
+                            <!-- X axis labels -->
+                            ${bins.filter((_, i) => i % labelInterval === 0 || i === bins.length - 1).map((bin, _, arr) => {
+                                const actualIndex = bins.indexOf(bin);
+                                return html`
+                                    <text x="${scaleX(actualIndex) + barWidth / 2}" y="${chartHeight + 15}"
+                                          text-anchor="middle" font-size="10" fill="#666">
+                                        ${bin.label}
+                                    </text>
+                                `;
+                            })}
+
+                            <!-- X axis label -->
+                            <text x="${chartWidth / 2}" y="${chartHeight + 30}" text-anchor="middle" font-size="11" fill="#666">
+                                Grade
+                            </text>
+                        </g>
+                    </svg>
+                </div>
+            `;
+        }
+
+        // Histogram with interactive bin size control
+        function GradeHistogramWithControls({ submissions, maxGrade }) {
+            const [binSize, setBinSize] = useState(1);
+            const maxBinSize = Math.max(Math.min(Math.ceil(maxGrade / 2), 10), 1);
+
+            return html`
+                <div class="histogram-container">
+                    <h3>Grade Distribution</h3>
+                    <div class="bin-control">
+                        <label>Bin size: <strong>${binSize}</strong></label>
+                        <input
+                            type="range"
+                            min="1"
+                            max="${maxBinSize}"
+                            step="1"
+                            value="${binSize}"
+                            onInput=${(e) => setBinSize(parseInt(e.target.value, 10))}
+                        />
+                        <span class="bin-info">
+                            ${binSize === 1 ? '(individual grades)' : `(${Math.ceil((maxGrade + 1) / binSize)} bins)`}
+                        </span>
+                    </div>
+                    <${GradeHistogram}
+                        submissions=${submissions}
+                        maxGrade=${maxGrade}
+                        binSize=${binSize}
+                    />
                 </div>
             `;
         }
@@ -194,7 +327,7 @@
         }
 
         // Task Info Component
-        function TaskInfo({ manifest, task, rubric, prompt }) {
+        function TaskInfo({ manifest, task, rubric, prompt, submissions }) {
             const [showRubric, setShowRubric] = useState(false);
             const [showPrompt, setShowPrompt] = useState(false);
 
@@ -224,6 +357,13 @@
                         <dt>Submissions</dt>
                         <dd>${manifest.submission_count}</dd>
                     </dl>
+
+                    ${submissions && submissions.length > 0 && html`
+                        <${GradeHistogramWithControls}
+                            submissions=${submissions}
+                            maxGrade=${task.max_grade}
+                        />
+                    `}
 
                     ${task.additional && Object.keys(task.additional).length > 0 && html`
                         <div class="task-additional">
@@ -455,6 +595,7 @@
                                 task=${edfData.task}
                                 rubric=${edfData.rubric}
                                 prompt=${edfData.prompt}
+                                submissions=${edfData.submissions}
                             />
                         `}
 
